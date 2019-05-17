@@ -70,6 +70,9 @@ app.on('ready', async () => {
     height: 728,
     frame: false,
     titleBarStyle: 'customButtonsOnHover',
+    webPreferences: {
+      nodeIntegration: true
+    }
   });
 
   mainWindow.loadURL(`file://${__dirname}/app.html`);

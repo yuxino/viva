@@ -3,7 +3,7 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import { useFetch } from '../hooks';
 
-import MdPreview from '../components/MdPreview';
+import MDPreview from '../components/MDPreview';
 import Layout from '../components/Layout';
 
 async function readFile() {
@@ -20,7 +20,7 @@ export default () => {
   return (
     <Layout>
       <MdTextArea />
-      {loading ? <p>Loading Content</p> : <MdPreview content={content} />}
+      {loading ? <p>Loading Content</p> : <MDPreview content={content} />}
     </Layout>
   );
 };

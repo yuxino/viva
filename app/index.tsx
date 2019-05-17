@@ -4,6 +4,7 @@ import { StoreContext } from 'redux-react-hook';
 import { AppContainer } from 'react-hot-loader';
 import { configureStore } from './store/configureStore';
 import App from './containers/App';
+import './styles/index.scss';
 
 const store = configureStore();
 
