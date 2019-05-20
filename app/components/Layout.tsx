@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import * as extend from '../styled/extend';
 import styled from 'styled-components';
 import MDPreview from './MDPreview';
@@ -33,33 +33,38 @@ const Textarea = styled.div`
 
 function Layout({ children }) {
   const [content, setContent] = useState('content');
-  const [ref, setRef] = useState();
-  const [rightRef, setRightRef] = useState();
+  const editorRef = useRef<HTMLDivElement>();
+  const previewRef = useRef<HTMLDivElement>();
+
+  // init editor content
   useEffect(() => {
-    if (ref) {
-      ref.innerText = content;
-      ref.addEventListener('scroll', () => {
-        console.log(ref.scrollTop);
-      });
-    }
-    // console.log(rightRef, setRightRef);
-  }, [ref]);
+    const editor = editorRef.current;
+    editor.innerText = content;
+  }, [editorRef]);
+
+  // handle editor input
+  const inputHandle = () => {
+    const editor = editorRef.current;
+    setContent(editor.innerText);
+  };
+
+  const scrollHanlder = e => {
+    const editor = editorRef.current;
+    console.log(editor.scrollTop);
+  };
 
   return (
     <Container>
       <Left>
         <Textarea
-          ref={setRef}
-          onInput={e => {
-            if (ref) {
-              setContent(ref.innerText);
-            }
-          }}
+          ref={editorRef}
+          onInput={inputHandle}
+          onScroll={scrollHanlder}
           contentEditable={true}
         />
       </Left>
       <Right>
-        <MDPreview content={content} />
+        <MDPreview content={content} r={previewRef} />
       </Right>
     </Container>
   );
