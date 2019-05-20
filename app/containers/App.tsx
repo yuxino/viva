@@ -3,7 +3,6 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import { useFetch } from '../hooks';
 
-import MDPreview from '../components/MDPreview';
 import Layout from '../components/Layout';
 
 async function readFile() {
@@ -11,16 +10,11 @@ async function readFile() {
   return buffer.toString();
 }
 
-function MdTextArea() {
-  return <textarea />;
-}
-
 export default () => {
-  const [content, loading] = useFetch(readFile);
   return (
     <Layout>
-      <MdTextArea />
-      {loading ? <p>Loading Content</p> : <MDPreview content={content} />}
+      {/* <MdTextArea /> */}
+      123
     </Layout>
   );
 };
