@@ -17,7 +17,7 @@ const Left = styled.div`
 
 const Right = styled.div`
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
 `;
 
 const Textarea = styled.div`
@@ -50,7 +50,22 @@ function Layout({ children }) {
 
   const scrollHanlder = e => {
     const editor = editorRef.current;
-    console.log(editor.scrollTop);
+    const preview = previewRef.current;
+
+    let previewHeight = preview.scrollHeight - window.innerHeight;
+    let editorHeight = editor.scrollHeight - window.innerHeight;
+
+    if (previewHeight < 0) previewHeight = 0;
+    if (editorHeight < 0) editorHeight = 0;
+
+    const scale = previewHeight / editorHeight;
+
+    let toY = editor.scrollTop * scale;
+    if (toY <= 0) toY = 0;
+    else if (toY >= previewHeight) toY = previewHeight;
+    else if (editor.scrollTop >= editorHeight) toY = previewHeight;
+
+    preview.scrollTop = toY;
   };
 
   return (
