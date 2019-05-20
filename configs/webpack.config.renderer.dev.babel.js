@@ -161,7 +161,7 @@ export default merge.smart(baseConfig, {
       multiStep: true
     }),
 
-    new webpack.NoEmitOnErrorsPlugin(),
+    // new webpack.NoEmitOnErrorsPlugin(),
 
     /**
      * Create global constants which can be configured at compile time.
