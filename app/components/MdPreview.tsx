@@ -7,6 +7,7 @@ export default function({ content }) {
     const html = md.render(content);
     return (
       <div
+        id="right"
         className="markdown-body"
         dangerouslySetInnerHTML={{ __html: html }}
       />

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useVModel } from '../hooks';
+import { useState, useEffect } from 'react';
 import * as extend from '../styled/extend';
 import styled from 'styled-components';
 import MDPreview from './MDPreview';
@@ -20,7 +20,7 @@ const Right = styled.div`
   overflow: auto;
 `;
 
-const Textarea = styled.textarea`
+const Textarea = styled.div`
   ${extend.resetTextarea};
   font-size: 15px;
   height: 100%;
@@ -32,13 +32,33 @@ const Textarea = styled.textarea`
 `;
 
 function Layout({ children }) {
-  const [content, setContent] = useVModel('content');
+  const [content, setContent] = useState('content');
+  const [ref, setRef] = useState();
+  const [rightRef, setRightRef] = useState();
+  useEffect(() => {
+    if (ref) {
+      ref.innerText = content;
+      ref.addEventListener('scroll', () => {
+        console.log(ref.scrollTop);
+      });
+    }
+    // console.log(rightRef, setRightRef);
+  }, [ref]);
+
   return (
     <Container>
       <Left>
-        <Textarea id="left" onChange={setContent} value={content} />
+        <Textarea
+          ref={setRef}
+          onInput={e => {
+            if (ref) {
+              setContent(ref.innerText);
+            }
+          }}
+          contentEditable={true}
+        />
       </Left>
-      <Right id="right">
+      <Right>
         <MDPreview content={content} />
       </Right>
     </Container>
