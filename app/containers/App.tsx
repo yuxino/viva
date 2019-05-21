@@ -1,13 +1,6 @@
 import * as React from 'react';
-import * as fs from 'fs-extra';
-import * as path from 'path';
 import { useRef, useState, useEffect } from 'react';
 import { Layout, MdEditor, MdPreview } from '../components';
-
-async function readFile() {
-  const buffer = await fs.readFile(path.join(__dirname, 'containers/Test.md'));
-  return buffer.toString();
-}
 
 export default () => {
   const [content, setContent] = useState('content');
