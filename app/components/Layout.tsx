@@ -52,20 +52,12 @@ function Layout({ children }) {
     const editor = editorRef.current;
     const preview = previewRef.current;
 
-    let previewHeight = preview.scrollHeight - window.innerHeight;
-    let editorHeight = editor.scrollHeight - window.innerHeight;
-
-    if (previewHeight < 0) previewHeight = 0;
-    if (editorHeight < 0) editorHeight = 0;
-
-    const scale = previewHeight / editorHeight;
-
-    let toY = editor.scrollTop * scale;
-    if (toY <= 0) toY = 0;
-    else if (toY >= previewHeight) toY = previewHeight;
-    else if (editor.scrollTop >= editorHeight) toY = previewHeight;
-
-    preview.scrollTop = toY;
+    setTimeout(() => {
+      var percentage =
+        editor.scrollTop / (editor.scrollHeight - editor.offsetHeight);
+      var height = percentage * (preview.scrollHeight - preview.offsetHeight);
+      preview.scrollTop = height;
+    }, 0);
   };
 
   return (
