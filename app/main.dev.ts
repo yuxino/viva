@@ -8,7 +8,7 @@
  * When running `yarn build` or `yarn build-main`, this file is compiled to
  * `./app/main.prod.js` using webpack. This gives us some performance wins.
  */
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu, Tray } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 
@@ -21,6 +21,7 @@ export default class AppUpdater {
 }
 
 let mainWindow = null;
+let tray = null;
 
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support');
@@ -31,7 +32,9 @@ if (
   process.env.NODE_ENV === 'development' ||
   process.env.DEBUG_PROD === 'true'
 ) {
-  require('electron-debug')();
+  require('electron-debug')({
+    showDevTools: false
+  });
 }
 
 const installExtensions = async () => {
@@ -64,6 +67,27 @@ app.on('ready', async () => {
     await installExtensions();
   }
 
+  tray = new Tray(`${__dirname}/icon.png`);
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'show',
+      type: 'normal',
+      click() {
+        mainWindow.show();
+        app.focus();
+      }
+    },
+    {
+      label: 'quit',
+      type: 'normal',
+      click() {
+        app.exit();
+      }
+    }
+  ]);
+  tray.setToolTip('This is my application.');
+  tray.setContextMenu(contextMenu);
+
   mainWindow = new BrowserWindow({
     show: false,
     width: 1024,
@@ -76,6 +100,7 @@ app.on('ready', async () => {
   });
 
   mainWindow.loadURL(`file://${__dirname}/app.html`);
+  // mainWindow.webContents.openDevTools({ mode: 'right' });
 
   // @TODO: Use 'ready-to-show' event
   //        https://github.com/electron/electron/blob/master/docs/api/browser-window.md#using-ready-to-show-event
@@ -91,8 +116,13 @@ app.on('ready', async () => {
     }
   });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+  mainWindow.on('close', function(event) {
+    // if (!mainWindow.isQuiting) {
+    //   event.preventDefault();
+    //   mainWindow.hide();
+    // }
+    // return false;
+    app.exit();
   });
 
   // Remove this if your app does not use auto updates
