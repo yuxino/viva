@@ -93,6 +93,8 @@ app.on('ready', async () => {
     width: 1024,
     height: 728,
     frame: false,
+    resizable: false,
+    maximizable: false,
     webPreferences: {
       nodeIntegration: true
     }
