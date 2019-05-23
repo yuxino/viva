@@ -93,7 +93,6 @@ app.on('ready', async () => {
     width: 1024,
     height: 728,
     frame: false,
-    titleBarStyle: 'customButtonsOnHover',
     webPreferences: {
       nodeIntegration: true
     }
@@ -116,12 +115,7 @@ app.on('ready', async () => {
     }
   });
 
-  mainWindow.on('close', function(event) {
-    // if (!mainWindow.isQuiting) {
-    //   event.preventDefault();
-    //   mainWindow.hide();
-    // }
-    // return false;
+  mainWindow.on('close', function() {
     app.exit();
   });
 
