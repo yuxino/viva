@@ -8,7 +8,7 @@
  * When running `yarn build` or `yarn build-main`, this file is compiled to
  * `./app/main.prod.js` using webpack. This gives us some performance wins.
  */
-import { app, BrowserWindow, Menu, Tray } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 
@@ -67,32 +67,10 @@ app.on('ready', async () => {
     await installExtensions();
   }
 
-  tray = new Tray(`${__dirname}/icon.png`);
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'show',
-      type: 'normal',
-      click() {
-        mainWindow.show();
-        app.focus();
-      }
-    },
-    {
-      label: 'quit',
-      type: 'normal',
-      click() {
-        app.exit();
-      }
-    }
-  ]);
-  tray.setToolTip('This is my application.');
-  tray.setContextMenu(contextMenu);
-
   mainWindow = new BrowserWindow({
     show: false,
     width: 1024,
     height: 728,
-    frame: false,
     resizable: false,
     maximizable: false,
     webPreferences: {
