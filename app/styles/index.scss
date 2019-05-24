@@ -7,4 +7,19 @@ body,
 .markdown-body {
   padding-left: 10px;
   padding-top: 20px;
+  padding-right: 10px;
+}
+
+div::-webkit-scrollbar {
+  width: 5.5px;
+}
+
+div::-webkit-scrollbar-track {
+  background: #ddd;
+  border-radius: 20px;
+}
+
+div::-webkit-scrollbar-thumb {
+  background: #54545480;
+  border-radius: 20px;
 }
