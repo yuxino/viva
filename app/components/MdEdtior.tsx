@@ -9,7 +9,7 @@ interface MdEditorProps {
 
 const Textarea = styled.div`
   ${extend.resetTextarea};
-  font-size: 15px;
+  font-size: 16px;
   height: 100%;
   width: 100%;
   line-height: 20px;

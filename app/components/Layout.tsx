@@ -10,7 +10,7 @@ const Container = styled.div`
 const Left = styled.div`
   flex: 1;
   overflow: hidden;
-  border-right: 1px solid orange;
+  border-right: 1px solid #eae9e7;
 `;
 
 const Right = styled.div`

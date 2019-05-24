@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useRef, useState, useEffect } from 'react';
-import { Layout, MdEditor, MdPreview } from '../components';
+import { Layout, MdEditor, MdPreview, Sidebar } from '../components';
 
 export default () => {
   const [content, setContent] = useState('content');
@@ -33,6 +33,7 @@ export default () => {
 
   return (
     <Layout>
+      <Sidebar />
       <Layout.Left>
         <MdEditor
           ref={editorRef}
