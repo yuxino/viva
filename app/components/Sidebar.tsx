@@ -1,5 +1,11 @@
 import * as React from 'react';
 import styled from 'styled-components';
+import { FileBlank } from 'styled-icons/boxicons-regular/FileBlank';
+import { GitBranch } from 'styled-icons/boxicons-regular/GitBranch';
+import { Search } from 'styled-icons/boxicons-regular/Search';
+import { FilePdf } from 'styled-icons/icomoon/FilePdf';
+import { Settings } from 'styled-icons/feather/Settings';
+import { Fullscreen } from 'styled-icons/boxicons-regular/Fullscreen';
 
 const Container = styled.div`
   border-right: 1px solid #eae9e7;
@@ -22,32 +28,30 @@ const IconGroupItem = styled.li`
   padding: 10px 15px;
 `;
 
-const Icon = styled.i`
-  font-size: 20px;
-  color: #8c8c8c;
-`;
-
 function Sidebar() {
   return (
     <Container>
       <IconGroup>
         <IconGroupItem>
-          <Icon className="far fa-copy" />
+          <FileBlank size={20} color="#8c8c8c" />
         </IconGroupItem>
         <IconGroupItem>
-          <Icon className="fas fa-code-branch" />
+          <GitBranch size={20} color="#8c8c8c" />
         </IconGroupItem>
         <IconGroupItem>
-          <Icon className="fas fa-search" />
+          <Search size={20} color="#8c8c8c" />
         </IconGroupItem>
         <IconGroupItem>
-          <Icon className="far fa-file-pdf" />
+          <Fullscreen size={20} color="#8c8c8c" />
+        </IconGroupItem>
+        <IconGroupItem>
+          <FilePdf size={20} color="#8c8c8c" />
         </IconGroupItem>
       </IconGroup>
 
       <IconGroup>
         <IconGroupItem>
-          <Icon className="fas fa-cog" />
+          <Settings size={20} />
         </IconGroupItem>
       </IconGroup>
     </Container>
