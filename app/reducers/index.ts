@@ -1,8 +1,8 @@
 import { combineReducers } from 'redux';
-import counter from './counter';
+import editor from './editor';
 
 export default function createRootReducer() {
   return combineReducers({
-    counter
+    editor
   });
 }

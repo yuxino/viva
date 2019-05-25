@@ -5,6 +5,7 @@ import * as extend from '../styled/extend';
 interface MdEditorProps {
   onInput(event?): void;
   onScroll(event?): void;
+  placeholder?: string;
 }
 
 const Textarea = styled.div`
@@ -20,12 +21,16 @@ const Textarea = styled.div`
 `;
 
 const MdEditor = React.forwardRef(
-  ({ onInput, onScroll }: MdEditorProps, ref: React.Ref<HTMLDivElement>) => {
+  (
+    { onInput, onScroll, placeholder }: MdEditorProps,
+    ref: React.Ref<HTMLDivElement>
+  ) => {
     return (
       <Textarea
         ref={ref}
         onInput={onInput}
         onScroll={onScroll}
+        placeholder={placeholder}
         contentEditable={true}
       />
     );
