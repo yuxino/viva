@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { useRef, useState, useEffect } from 'react';
 import { Layout, MdEditor, MdPreview, Sidebar } from '../components';
+import { readFile } from 'fs-extra';
 
 export default () => {
-  const [content, setContent] = useState('content');
+  const [content, setContent] = useState('');
   const editorRef = useRef<HTMLDivElement>();
   const previewRef = useRef<HTMLDivElement>();
 
@@ -11,6 +12,24 @@ export default () => {
   useEffect(() => {
     const editor = editorRef.current;
     editor.innerText = content;
+    editor.focus();
+
+    document
+      .getElementById('root')
+      .addEventListener('drop', async function(event) {
+        event.preventDefault();
+        // single file ...
+        const file = event.dataTransfer.files[0];
+        const path = file.path;
+        const buffer = await readFile(path);
+        const content = buffer.toString();
+        editor.innerText = content;
+        setContent(content);
+      });
+
+    document.getElementById('root').addEventListener('dragover', function() {
+      event.preventDefault();
+    });
   }, [editorRef]);
 
   // handle editor input
@@ -39,6 +58,7 @@ export default () => {
           ref={editorRef}
           onInput={inputHandle}
           onScroll={scrollHanlder}
+          placeholder="type something here ..."
         />
       </Layout.Left>
       <Layout.Right>
