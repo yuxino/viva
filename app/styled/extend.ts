@@ -1,3 +1,8 @@
+export const flexColumn = `
+  display: flex;
+  flex-direction: column;
+`;
+
 export const hc = `
   display: flex;
   jusitfy-content: center;

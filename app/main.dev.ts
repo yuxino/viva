@@ -9,6 +9,7 @@
  * `./app/main.prod.js` using webpack. This gives us some performance wins.
  */
 import { app, BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 
@@ -73,7 +74,7 @@ app.on('ready', async () => {
     height: 728,
     resizable: false,
     maximizable: false,
-    // frame: false,
+    frame: false,
     webPreferences: {
       nodeIntegration: true
     }
@@ -97,6 +98,10 @@ app.on('ready', async () => {
   });
 
   mainWindow.on('close', function() {
+    app.exit();
+  });
+
+  ipcMain.on('close', function() {
     app.exit();
   });
 
