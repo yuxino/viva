@@ -1,10 +1,16 @@
 import * as React from 'react';
 import * as extend from '../styled/extend';
 import styled from 'styled-components';
+import Sidebar from './Sidebar';
+
+const Box = styled.div`
+  ${extend.flexColumn};
+  height: 100%;
+`;
 
 const Container = styled.div`
   ${extend.hc};
-  height: 100%;
+  flex: 1;
 `;
 
 const Left = styled.div`
@@ -18,10 +24,19 @@ const Right = styled.div`
   overflow: hidden;
 `;
 
+const Header = styled.div`
+  border-bottom: 1px solid #eae9e7;
+`;
+
 function Layout({ children }) {
-  return <Container>{children}</Container>;
+  return <Box>{children}</Box>;
 }
 
+Layout.Header = Header;
+Layout.Sidebar = Sidebar;
+
+Layout.Container = Container;
 Layout.Left = Left;
 Layout.Right = Right;
+
 export default Layout;
