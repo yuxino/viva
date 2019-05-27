@@ -1,17 +1,15 @@
+import produce from "immer"
+
 export function initState() {
   return {
     content: ''
   };
 }
 
-export default (state = initState(), action) => {
-  switch (action.type) {
-    case 'UPDATE_CONTENT':
-      return {
-        ...state,
-        content: action.payload.content
-      };
-    default:
-      return state;
-  }
-};
+export default (state = initState(), action) => 
+  produce(state, draft => {
+    switch (action.type) {
+      case 'UPDATE_CONTENT': 
+        draft.content = action.payload.content
+  }})
+;
