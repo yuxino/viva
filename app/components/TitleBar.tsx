@@ -8,14 +8,10 @@ const Container = styled.div`
   align-items: center;
 `;
 
-const Left = styled.div`
-  /* margin-right: auto; */
-`;
+const Left = styled.div``;
+const Right = styled.div``;
 const Content = styled.div`
   margin: 0 auto;
-`;
-const Right = styled.div`
-  /* margin-left: auto; */
 `;
 
 const TitleBar = function({ children }) {
