@@ -53,7 +53,7 @@ export default () => {
   return (
     <Layout>
       <Layout.Header>
-        <VivaTitleBar />
+        <VivaTitleBar title="Untitled-1" />
       </Layout.Header>
       <Layout.Container>
         <Layout.Sidebar />

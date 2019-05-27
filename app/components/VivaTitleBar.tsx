@@ -9,14 +9,18 @@ const CloseIcon = styled(Close)`
   cursor: pointer;
 `;
 
-export default function() {
+const Title = styled(TitleBar.Content)`
+  font-size: 14px;
+`
+
+export default function ({ title }) {
   const exitApp = () => {
-    console.log(ipcRenderer);
     ipcRenderer.send('close');
   };
 
   return (
     <TitleBar>
+      <Title>{title}</Title>
       <TitleBar.Right>
         <CloseIcon size={15} color="#8c8c8c" onClick={exitApp} />
       </TitleBar.Right>
