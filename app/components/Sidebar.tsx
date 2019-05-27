@@ -25,6 +25,14 @@ const IconGroupItem = styled.li`
   & + & {
     margin-top: 15px;
   }
+  svg {
+    cursor: pointer;
+  }
+  &:hover {
+    svg {
+      color: black;
+    }
+  }
   padding: 10px 15px;
 `;
 
@@ -32,26 +40,26 @@ function Sidebar() {
   return (
     <Container>
       <IconGroup>
-        <IconGroupItem>
+        <IconGroupItem title="Explorer">
           <FileBlank size={20} color="#8c8c8c" />
         </IconGroupItem>
-        <IconGroupItem>
+        <IconGroupItem title="Source Control">
           <GitBranch size={20} color="#8c8c8c" />
         </IconGroupItem>
-        <IconGroupItem>
+        <IconGroupItem title="Search">
           <Search size={20} color="#8c8c8c" />
         </IconGroupItem>
-        <IconGroupItem>
+        <IconGroupItem title="Full Screen">
           <Fullscreen size={20} color="#8c8c8c" />
         </IconGroupItem>
-        <IconGroupItem>
+        <IconGroupItem title="Export To Pdf">
           <FilePdf size={20} color="#8c8c8c" />
         </IconGroupItem>
       </IconGroup>
 
       <IconGroup>
-        <IconGroupItem>
-          <Settings size={20} />
+        <IconGroupItem title="User Settings">
+          <Settings size={20} color="#8c8c8c" />
         </IconGroupItem>
       </IconGroup>
     </Container>
