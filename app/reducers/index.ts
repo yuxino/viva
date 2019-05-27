@@ -1,8 +1,14 @@
 import { combineReducers } from 'redux';
-import editor from './editor';
+import explore from './explore';
+import tabs from './tabs';
+import titlebar from './titlebar';
+import views from './views';
 
 export default function createRootReducer() {
   return combineReducers({
-    editor
+    explore,
+    tabs,
+    titlebar,
+    views
   });
 }
