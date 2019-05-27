@@ -28,3 +28,7 @@ div::-webkit-scrollbar-thumb {
   background: #54545480;
   border-radius: 5px;
 }
+
+*::selection {
+  background: #c0dfffb8;
+}
