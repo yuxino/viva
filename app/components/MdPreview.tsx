@@ -1,7 +1,6 @@
 import * as React from 'react';
 import MarkdownIt from 'markdown-it';
 import styled from 'styled-components';
-import { useState } from 'react';
 
 const md = MarkdownIt();
 

@@ -22,6 +22,7 @@ const IconGroup = styled.ul`
 `;
 
 const IconGroupItem = styled.li`
+  padding: 10px 15px;
   & + & {
     margin-top: 15px;
   }
@@ -33,12 +34,12 @@ const IconGroupItem = styled.li`
       color: black;
     }
   }
-  padding: 10px 15px;
 `;
 
 function Sidebar() {
   return (
     <Container>
+      {/* Top Menu */}
       <IconGroup>
         <IconGroupItem title="Explorer">
           <FileBlank size={20} color="#8c8c8c" />
@@ -56,7 +57,7 @@ function Sidebar() {
           <FilePdf size={20} color="#8c8c8c" />
         </IconGroupItem>
       </IconGroup>
-
+      {/* Bottom Menu */}
       <IconGroup>
         <IconGroupItem title="User Settings">
           <Settings size={20} color="#8c8c8c" />
