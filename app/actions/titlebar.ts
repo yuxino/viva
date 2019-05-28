@@ -1,4 +1,5 @@
-const prefix = 'TITILEBAR';
-const nameGen = name => `${prefix}_${name}`;
+enum TITILEBAR {
+  UPDATE_TITLE = 'TITILEBAR_UPDATE_TITLE'
+}
 
-export const UPDATE_TITLE = nameGen('UPDATE_TITLE');
+export default TITILEBAR
