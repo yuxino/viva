@@ -9,6 +9,7 @@
     "pretty": true,
     "sourceMap": true,
     "resolveJsonModule": true,
+    "downlevelIteration": true,
     "lib": ["es2015", "dom"]
   },
   "exclude": ["node_modules", "**/node_modules/*"]

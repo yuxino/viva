@@ -1,24 +1,51 @@
-import Tab from "./tab"
+import Tab from './tab';
 
-class Tabs {
-  set:Set<Tab> = null;
-  tail:Tab = null;
+export default class Tabs {
+  _tabs: Set<Tab> = new Set();
+  _tail: Tab = null;
 
-  constructor () {
-    this.set = new Set();
+  get tail() {
+    return this._tail;
   }
 
-  addTab () {}
+  // TODO: get index in tabs
+  findTabIdx(tab) {
+    // for (let item in tab) {
+    //   if (tab === item) return item;
+    // }
+    // return null;
+  }
 
-  removeTab () {}
+  addTab(tab: Tab) {
+    this._tabs.add(tab);
+  }
 
-  removeSavedTab () {}
+  removeTab(tab) {
+    this._tabs.delete(tab);
+    // TODO: check tail
+  }
 
-  removeAll () {}
+  removeSavedTab() {
+    const tabsArray = [...this._tabs];
+    const savedTabs: Tab[] = tabsArray.filter(({ saved }) => saved);
+    savedTabs.forEach(this._tabs.delete);
+    // TODO: check tail
+  }
 
-  removeLeft () {}
-  
-  removeRight () {}
+  removeAll() {
+    this._tabs = new Set();
+    this._tabs = null;
+  }
 
-  size() {}
+  removeLeft(tab: Tab) {
+    // const tabIdx = this._tabs.
+  }
+
+  removeRight(tab: Tab) {
+    // const findIdx = this._tabs.
+  }
+
+  size() {
+    return this._tabs.size;
+  }
 }
