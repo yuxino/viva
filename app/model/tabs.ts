@@ -1,8 +1,4 @@
-class Tab {
-  saved = true;
-  filename = undefined;
-  constructor () {}
-}
+import Tab from "./tab"
 
 class Tabs {
   set:Set<Tab> = null;
@@ -23,4 +19,6 @@ class Tabs {
   removeLeft () {}
   
   removeRight () {}
+
+  size() {}
 }
