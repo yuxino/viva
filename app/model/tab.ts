@@ -1,5 +1,5 @@
 export default class Tab {
-  private _saved = null;
+  private _saved = true;
   // private _fileInfo = {};
 
   get saved() {
