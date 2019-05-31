@@ -1,52 +1,49 @@
 import Tab from './tab';
 
 export default class Tabs {
+  private _size = 0;
+  private _head: Tab = null;
+  private _tail: Tab = null;
 
-  _size = 0;
-  _head: Tab = null;
-  _tail: Tab = null;
-
-  get head () {
+  get head() {
     return this._head;
   }
 
-  get tail () {
+  get tail() {
     return this._tail;
   }
 
-  private _isHead(tab) {
-    return this._head === tab
+  get size() {
+    return this._size;
   }
 
-  private _isTail (tab) {
+  private _isHead(tab) {
+    return this._head === tab;
+  }
+
+  private _isTail(tab) {
     return this._tail === tab;
   }
 
-  public findTabIdx(tab) {
-    // let item = this._head;
-    // if (item.next)    
-  }
-
   public addTab(tab: Tab) {
-    // init linked list
     if (!this._head) {
       this._head = tab;
-    }
-    if (!this._tail) {
+      this._tail = tab;
+    } else {
+      tab.prev = this.tail;
+      this._tail.next = tab;
       this._tail = tab;
     }
-    else if (!this._tail.prev) { 
-
-    }
+    this._size = this._size + 1;
   }
 
   public removeTab(tab) {
     // this._tabs.delete(tab);
   }
 
-  public swapTab (tab, tab2) {
+  public swapTab(tab, tab2) {
     // same tab .. don't swap
-    if (tab === tab2) return
+    if (tab === tab2) return;
     const tabIsHead = this._isHead(tab);
     const tab2IsHead = this._isHead(tab2);
     const tabIsTail = this._isTail(tab);
@@ -54,15 +51,13 @@ export default class Tabs {
 
     if (tabIsHead) {
       this._head = tab2;
-    }
-    else if (tab2IsHead) {
+    } else if (tab2IsHead) {
       this._head = tab;
     }
-    
+
     if (tabIsTail) {
       this._tail = tab2;
-    }
-    else if (tab2isTail) {
+    } else if (tab2isTail) {
       this._tail = tab;
     }
 

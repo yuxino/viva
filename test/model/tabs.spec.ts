@@ -1,12 +1,58 @@
 import Tabs from '../../app/model/tabs';
 import Tab from '../../app/model/tab';
 
+class TestTabs extends Tabs {
+  getArray() {
+    let item = this._head;
+    let array = [];
+    while (item) {
+      array.push(item['name']);
+      item = item.next;
+    }
+    return array;
+  }
+}
+
+class TestTab extends Tab {
+  public name: string;
+  constructor(name) {
+    super();
+    this.name = name;
+  }
+}
+
 describe('model/tabs', () => {
   describe('addTab', () => {
     it('head node is equal tail node', () => {
-      const tabs = new Tabs();
-      const tab = new Tab();
-      // tabs.addTab()
+      const tabs = new TestTabs();
+      const tab1 = new TestTab(1);
+      tabs.addTab(tab1);
+
+      expect(tabs.head).toEqual(tabs.tail);
+    });
+    it('order should be 1,2,3', () => {
+      const tabs = new TestTabs();
+      const tab1 = new TestTab(1);
+      const tab2 = new TestTab(2);
+      const tab3 = new TestTab(3);
+
+      tabs.addTab(tab1);
+      tabs.addTab(tab2);
+      tabs.addTab(tab3);
+
+      expect(tabs.getArray()).toEqual([1, 2, 3]);
+    });
+    it('order should be 3,2,1', () => {
+      const tabs = new TestTabs();
+      const tab1 = new TestTab(1);
+      const tab2 = new TestTab(2);
+      const tab3 = new TestTab(3);
+
+      tabs.addTab(tab3);
+      tabs.addTab(tab2);
+      tabs.addTab(tab1);
+
+      expect(tabs.getArray()).toEqual([3, 2, 1]);
     });
   });
 
