@@ -1,6 +1,23 @@
 export default class Tab {
   private _saved = true;
-  // private _fileInfo = {};
+  public _prev = null;
+  public _next = null;
+
+  get prev() {
+    return this._prev
+  }
+
+  set prev(tab: Tab) {
+    this._prev = tab
+  }
+
+  get next () {
+    return this._next
+  }
+
+  set next (tab: Tab) {
+    this.next = tab
+  }
 
   get saved() {
     return this._saved;
@@ -10,12 +27,4 @@ export default class Tab {
     this._saved = flag;
   }
 
-
-  // get fileInfo() {
-  //   return this._fileInfo;
-  // }
-
-  // set fileInfo(fileInfo) {
-  //   this.fileInfo = fileInfo;
-  // }
 }
