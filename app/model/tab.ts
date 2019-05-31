@@ -10,6 +10,7 @@ export default class Tab {
     this._saved = flag;
   }
 
+
   // get fileInfo() {
   //   return this._fileInfo;
   // }

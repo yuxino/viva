@@ -45,19 +45,27 @@ export default class Tabs {
     this._tabs = new Set();
   }
 
-  // TODO:
   public removeLeft(tab: Tab) {
+    const tabsArray = this._getTabsArray();
     const tabIdx = this.findTabIdx(tab);
-    for (let i = 0; i < tabIdx; i++) {}
+    for (let idx = 0; idx < tabIdx; idx++) {
+      this.removeTab(tabsArray[idx]);
+    }
   }
 
-  // TODO:
   public removeRight(tab: Tab) {
+    const tabsArray = this._getTabsArray();
     const tabIdx = this.findTabIdx(tab);
-    for (let i = tabIdx; i > this.size; i++) {}
+    for (let idx = tabIdx + 1; idx <= this.size; idx++) {
+      this.removeTab(tabsArray[idx]);
+    }
   }
 
   public isEmpty() {
     return this.size === 0;
+  }
+
+  public has(tab: Tab) {
+    return this.tabs.has(tab);
   }
 }
