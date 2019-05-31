@@ -5,15 +5,15 @@ describe('model/tabs', () => {
   describe('addTab', () => {
     it('should add a new tab in tab list', () => {
       const tabs = new Tabs();
-      expect(tabs.size).toEqual(0);
+      expect(tabs.size).toBe(0);
 
       const tab = new Tab();
       tabs.addTab(tab);
-      expect(tabs.size).toEqual(1);
+      expect(tabs.size).toBe(1);
 
       const tab2 = new Tab();
       tabs.addTab(tab2);
-      expect(tabs.size).toEqual(2);
+      expect(tabs.size).toBe(2);
     });
   });
 
@@ -25,7 +25,7 @@ describe('model/tabs', () => {
       tabs.addTab(tab);
 
       tabs.removeTab(tab);
-      expect(tabs.size).toEqual(0);
+      expect(tabs.size).toBe(0);
     });
   });
 
@@ -44,10 +44,10 @@ describe('model/tabs', () => {
       tabs.addTab(tab3);
 
       tabs.removeSavedTab();
-      expect(tabs.size).toEqual(1);
+      expect(tabs.size).toBe(1);
 
       for (let item of tabs.tabs) {
-        expect(item.saved).toEqual(false);
+        expect(item.saved).toBe(false);
       }
     });
   });
@@ -63,7 +63,7 @@ describe('model/tabs', () => {
       tabs.addTab(tab2);
 
       tabs.removeAll();
-      expect(tabs.size).toEqual(0);
+      expect(tabs.size).toBe(0);
       expect(tabs.isEmpty()).toBe(true);
     });
   });
@@ -76,29 +76,75 @@ describe('model/tabs', () => {
     tabs.addTab(tab2);
 
     it('should be 0', () => {
-      expect(tabs.findTabIdx(tab1)).toEqual(0);
+      expect(tabs.findTabIdx(tab1)).toBe(0);
     });
 
     it('should be 1', () => {
-      expect(tabs.findTabIdx(tab2)).toEqual(1);
+      expect(tabs.findTabIdx(tab2)).toBe(1);
     });
 
     it('should be -1', () => {
-      expect(tabs.findTabIdx(null)).toEqual(-1);
-      expect(tabs.findTabIdx(undefined)).toEqual(-1);
-      expect(tabs.findTabIdx(new Tab())).toEqual(-1);
+      expect(tabs.findTabIdx(null)).toBe(-1);
+      expect(tabs.findTabIdx(undefined)).toBe(-1);
+      expect(tabs.findTabIdx(new Tab())).toBe(-1);
     });
   });
 
   describe('removeLeft', () => {
     it('should remove tabs on the left side of tab', () => {
-      // TODO:
+      const tabs = new Tabs();
+      const tab1 = new Tab();
+      tabs.addTab(tab1);
+
+      const tab2 = new Tab();
+      tabs.addTab(tab2);
+
+      const tab3 = new Tab();
+      tabs.addTab(tab3);
+
+      const tab4 = new Tab();
+      tabs.addTab(tab4);
+
+      const tab5 = new Tab();
+      tabs.addTab(tab5);
+
+      tabs.removeLeft(tab3);
+
+      expect(tabs.size).toBe(3);
+      expect(tabs.has(tab1)).toBe(false);
+      expect(tabs.has(tab2)).toBe(false);
+      expect(tabs.has(tab3)).toBe(true);
+      expect(tabs.has(tab4)).toBe(true);
+      expect(tabs.has(tab5)).toBe(true);
     });
   });
 
   describe('removeRight', () => {
     it('should remove tabs on the right side of tab', () => {
-      // TODO:
+      const tabs = new Tabs();
+      const tab1 = new Tab();
+      tabs.addTab(tab1);
+
+      const tab2 = new Tab();
+      tabs.addTab(tab2);
+
+      const tab3 = new Tab();
+      tabs.addTab(tab3);
+
+      const tab4 = new Tab();
+      tabs.addTab(tab4);
+
+      const tab5 = new Tab();
+      tabs.addTab(tab5);
+
+      tabs.removeRight(tab3);
+
+      expect(tabs.size).toBe(3);
+      expect(tabs.has(tab1)).toBe(true);
+      expect(tabs.has(tab2)).toBe(true);
+      expect(tabs.has(tab3)).toBe(true);
+      expect(tabs.has(tab4)).toBe(false);
+      expect(tabs.has(tab5)).toBe(false);
     });
   });
 });
