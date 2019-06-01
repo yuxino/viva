@@ -196,4 +196,19 @@ export default class Tabs {
   public isEmpty() {
     return this.size === 0;
   }
+
+  [Symbol.iterator]() {
+    let item = this.head;
+    return {
+      next() {
+        if (item) {
+          const ret = { value: item, done: false };
+          item = item.next;
+          return ret;
+        } else {
+          return { value: undefined, done: true };
+        }
+      }
+    };
+  }
 }
