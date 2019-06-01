@@ -3,11 +3,9 @@ import Tab from '../../app/model/tab';
 
 class TestTabs extends Tabs {
   getArray() {
-    let item = this.head;
     let array = [];
-    while (item) {
+    for (let item of this) {
       array.push(item['name']);
-      item = item.next;
     }
     return array;
   }
@@ -392,7 +390,7 @@ describe('model/tabs', () => {
 
       tabs.swapTab(tab5, tab4);
 
-      expect(tabs.getArray()).toEqual([1,2,3,5,4]);
+      expect(tabs.getArray()).toEqual([1, 2, 3, 5, 4]);
       expect(tabs.tail.next).toBeNull();
     });
 
@@ -442,6 +440,32 @@ describe('model/tabs', () => {
       tabs.swapTab(tab2, tab4);
 
       expect(tabs.getArray()).toEqual([1, 4, 3, 2, 5]);
+    });
+  });
+
+  describe('iterable', () => {
+    it('tabs is iterable', () => {
+      const tabs = new TestTabs();
+      expect(typeof tabs[Symbol.iterator]).toBe('function');
+    });
+
+    it('correct behavior', () => {
+      const tabs = new TestTabs();
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
+
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
+
+      let iterator = tabs[Symbol.iterator]();
+      let result = iterator.next();
+      expect(result.value).toEqual(tab);
+
+      let result2 = iterator.next();
+      expect(result2.value).toEqual(tab2);
+
+      let result3 = iterator.next();
+      expect(result3.done).toBe(true);
     });
   });
 });
