@@ -2,6 +2,15 @@ export default class Tab {
   private _saved = true;
   public _prev = null;
   public _next = null;
+  public data = {};
+
+  constructor(tab?: Tab) {
+    if (tab) {
+      this.saved = tab.saved;
+      this.data = tab.data;
+      if (tab['name']) this['name'] = tab['name'];
+    }
+  }
 
   get prev() {
     return this._prev;
