@@ -25,6 +25,15 @@ export default class Tabs {
     return this._tail === tab;
   }
 
+  private reComputedSize() {
+    let item = this._head;
+    this._size = 0;
+    while (item) {
+      this._size = this.size + 1;
+      item = item.next;
+    }
+  }
+
   public addTab(tab: Tab) {
     if (!this._head) {
       this._head = tab;
@@ -38,7 +47,32 @@ export default class Tabs {
   }
 
   public removeTab(tab) {
-    // this._tabs.delete(tab);
+    const isHead = this._isHead(tab);
+    const isTail = this._isTail(tab);
+    const inMid = !isHead && !isTail;
+
+    if (isHead && isTail) {
+      this._head = null;
+      this._tail = null;
+    } else if (isHead) {
+      this._head = tab.next;
+      this._head.prev = null;
+    } else if (isTail) {
+      this._tail = tab.prev;
+      this._tail.next = null;
+      tab.prev.next = tab.next;
+    } else if (inMid) {
+      tab.prev.next = tab.next;
+    }
+    this._size = this._size - 1;
+  }
+
+  public removeSavedTab() {
+    let item = this._head;
+    while (item) {
+      item.saved && this.removeTab(item);
+      item = item.next;
+    }
   }
 
   public swapTab(tab, tab2) {
@@ -65,39 +99,35 @@ export default class Tabs {
     tab = tab2;
   }
 
-  public removeSavedTab() {
-    // const tabsArray = this._getTabsArray();
-    // const savedTabs: Tab[] = tabsArray.filter(({ saved }) => saved);
-    // savedTabs.forEach(tab => {
-    //   this.removeTab(tab);
-    // });
-  }
-
   public removeAll() {
-    // this._tabs = new Set();
+    this._head = null;
+    this._tail = null;
+    this._size = 0;
   }
 
   public removeLeft(tab: Tab) {
-    // const tabsArray = this._getTabsArray();
-    // const tabIdx = this.findTabIdx(tab);
-    // for (let idx = 0; idx < tabIdx; idx++) {
-    //   this.removeTab(tabsArray[idx]);
-    // }
+    const isHead = this._isHead(tab);
+    const isTail = this._isTail(tab);
+
+    this._head = tab;
+    this._head.prev = null;
+    isHead && isTail && (this._tail = this._head);
+
+    this.reComputedSize();
   }
 
   public removeRight(tab: Tab) {
-    // const tabsArray = this._getTabsArray();
-    // const tabIdx = this.findTabIdx(tab);
-    // for (let idx = tabIdx + 1; idx <= this.size; idx++) {
-    //   this.removeTab(tabsArray[idx]);
-    // }
+    const isHead = this._isHead(tab);
+    const isTail = this._isTail(tab);
+
+    this._tail = tab;
+    this._tail.next = null;
+    isHead && isTail && (this._head = this._tail);
+
+    this.reComputedSize();
   }
 
   public isEmpty() {
-    // return this.size === 0;
-  }
-
-  public has(tab: Tab) {
-    // return this.tabs.has(tab);
+    return this.size === 0;
   }
 }
