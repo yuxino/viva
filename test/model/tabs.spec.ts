@@ -26,9 +26,10 @@ describe('model/tabs', () => {
     it('head node is equal tail node', () => {
       const tabs = new TestTabs();
       const tab1 = new TestTab(1);
-      tabs.addTab(tab1);
+      const head = tabs.addTab(tab1);
 
-      expect(tabs.head).toEqual(tabs.tail);
+      expect(tabs.size).toEqual(1);
+      expect(head).toEqual(tabs.tail);
     });
 
     it('order should be 1,2,3', () => {
@@ -39,9 +40,10 @@ describe('model/tabs', () => {
 
       tabs.addTab(tab1);
       tabs.addTab(tab2);
-      tabs.addTab(tab3);
+      const head = tabs.addTab(tab3);
 
-      expect(tabs.head).toBe(tab1);
+      expect(head).toBe(tab1);
+      expect(tabs.size).toBe(3);
       expect(tabs.getArray()).toEqual([1, 2, 3]);
       expect(tabs.tail).toBe(tab3);
     });
@@ -54,9 +56,10 @@ describe('model/tabs', () => {
 
       tabs.addTab(tab3);
       tabs.addTab(tab2);
-      tabs.addTab(tab1);
+      const head = tabs.addTab(tab1);
 
-      expect(tabs.head).toBe(tab3);
+      expect(head).toBe(tab3);
+      expect(tabs.size).toBe(3);
       expect(tabs.getArray()).toEqual([3, 2, 1]);
       expect(tabs.tail).toBe(tab1);
     });
@@ -69,9 +72,9 @@ describe('model/tabs', () => {
 
       tabs.addTab(tab1);
 
-      tabs.removeTab(tab1);
+      const head = tabs.removeTab(tab1);
 
-      expect(tabs.head).toBe(null);
+      expect(head).toBe(null);
       expect(tabs.getArray()).toEqual([]);
       expect(tabs.tail).toBe(null);
       expect(tabs.size).toBe(0);
@@ -87,9 +90,9 @@ describe('model/tabs', () => {
       tabs.addTab(tab2);
       tabs.addTab(tab3);
 
-      tabs.removeTab(tab2);
+      const head = tabs.removeTab(tab2);
 
-      expect(tabs.head).toBe(tab1);
+      expect(head).toBe(tab1);
       expect(tabs.getArray()).toEqual([1, 3]);
       expect(tabs.tail).toBe(tab3);
       expect(tabs.size).toBe(2);
@@ -105,10 +108,10 @@ describe('model/tabs', () => {
       tabs.addTab(tab2);
       tabs.addTab(tab3);
 
-      tabs.removeTab(tab1);
+      const head = tabs.removeTab(tab1);
 
-      expect(tabs.head).toBe(tab2);
-      expect(tabs.head.prev).toBe(null);
+      expect(head).toBe(tab2);
+      expect(head.prev).toBe(null);
       expect(tabs.getArray()).toEqual([2, 3]);
       expect(tabs.tail).toBe(tab3);
       expect(tabs.tail.next).toBe(null);
@@ -125,9 +128,9 @@ describe('model/tabs', () => {
       tabs.addTab(tab2);
       tabs.addTab(tab3);
 
-      tabs.removeTab(tab3);
+      const head = tabs.removeTab(tab3);
 
-      expect(tabs.head).toBe(tab1);
+      expect(head).toBe(tab1);
       expect(tabs.getArray()).toEqual([1, 2]);
       expect(tabs.tail).toBe(tab2);
       expect(tabs.tail.next).toBe(null);
@@ -150,9 +153,10 @@ describe('model/tabs', () => {
       tab3.saved = false;
       tabs.addTab(tab3);
 
-      tabs.removeSavedTab();
+      const head = tabs.removeSavedTab();
 
       expect(tabs.size).toBe(1);
+      expect(head).toEqual(tab3);
       expect(tabs.getArray()).toEqual([3]);
     });
   });
@@ -167,7 +171,8 @@ describe('model/tabs', () => {
       const tab2 = new TestTab(2);
       tabs.addTab(tab2);
 
-      tabs.removeAll();
+      const head = tabs.removeAll();
+      expect(head).toBeNull();
       expect(tabs.size).toBe(0);
       expect(tabs.size).toBe(0);
       expect(tabs.isEmpty()).toBe(true);
@@ -179,13 +184,13 @@ describe('model/tabs', () => {
       const tabs = new TestTabs();
       const tab1 = new TestTab(1);
       tabs.addTab(tab1);
-      tabs.removeLeft(tab1);
+      const head = tabs.removeLeft(tab1);
 
       expect(tabs.size).toBe(1);
-      expect(tabs.head).toBe(tab1);
+      expect(head).toBe(tab1);
       expect(tabs.tail).toBe(tab1);
-      expect(tabs.head.prev).toBe(null);
-      expect(tabs.head).toEqual(tabs.tail);
+      expect(head.prev).toBe(null);
+      expect(head).toEqual(tabs.tail);
       expect(tabs.getArray()).toEqual([1]);
     });
 
@@ -206,12 +211,12 @@ describe('model/tabs', () => {
       const tab5 = new TestTab(5);
       tabs.addTab(tab5);
 
-      tabs.removeLeft(tab1);
+      const head = tabs.removeLeft(tab1);
 
       expect(tabs.size).toBe(5);
-      expect(tabs.head).toBe(tab1);
+      expect(head).toBe(tab1);
       expect(tabs.tail).toBe(tab5);
-      expect(tabs.head.prev).toBe(null);
+      expect(head.prev).toBe(null);
       expect(tabs.getArray()).toEqual([1, 2, 3, 4, 5]);
     });
 
@@ -232,12 +237,12 @@ describe('model/tabs', () => {
       const tab5 = new TestTab(5);
       tabs.addTab(tab5);
 
-      tabs.removeLeft(tab3);
+      const head = tabs.removeLeft(tab3);
 
       expect(tabs.size).toBe(3);
-      expect(tabs.head).toBe(tab3);
+      expect(head).toBe(tab3);
       expect(tabs.tail).toBe(tab5);
-      expect(tabs.head.prev).toBe(null);
+      expect(head.prev).toBe(null);
       expect(tabs.getArray()).toEqual([3, 4, 5]);
     });
   });
@@ -247,13 +252,13 @@ describe('model/tabs', () => {
       const tabs = new TestTabs();
       const tab1 = new TestTab(1);
       tabs.addTab(tab1);
-      tabs.removeRight(tab1);
+      const head = tabs.removeRight(tab1);
 
       expect(tabs.size).toBe(1);
-      expect(tabs.head).toBe(tab1);
+      expect(head).toBe(tab1);
       expect(tabs.tail).toBe(tab1);
       expect(tabs.tail.prev).toBe(null);
-      expect(tabs.tail).toEqual(tabs.head);
+      expect(tabs.tail).toEqual(head);
       expect(tabs.getArray()).toEqual([1]);
     });
 
@@ -274,10 +279,10 @@ describe('model/tabs', () => {
       const tab5 = new TestTab(5);
       tabs.addTab(tab5);
 
-      tabs.removeRight(tab5);
+      const head = tabs.removeRight(tab5);
 
       expect(tabs.size).toBe(5);
-      expect(tabs.head).toBe(tab1);
+      expect(head).toBe(tab1);
       expect(tabs.tail).toBe(tab5);
       expect(tabs.tail.next).toBe(null);
       expect(tabs.getArray()).toEqual([1, 2, 3, 4, 5]);
@@ -300,13 +305,15 @@ describe('model/tabs', () => {
       const tab5 = new TestTab(5);
       tabs.addTab(tab5);
 
-      tabs.removeRight(tab3);
+      const head = tabs.removeRight(tab3);
 
       expect(tabs.size).toBe(3);
-      expect(tabs.head).toBe(tab1);
+      expect(head).toBe(tab1);
       expect(tabs.tail).toBe(tab3);
       expect(tabs.tail.next).toBe(null);
       expect(tabs.getArray()).toEqual([1, 2, 3]);
     });
   });
+
+  describe('swapTab', () => {});
 });
