@@ -44,6 +44,7 @@ export default class Tabs {
       this._tail = tab;
     }
     this._size = this._size + 1;
+    return this.head;
   }
 
   public removeTab(tab) {
@@ -65,6 +66,7 @@ export default class Tabs {
       tab.prev.next = tab.next;
     }
     this._size = this._size - 1;
+    return this.head;
   }
 
   public removeSavedTab() {
@@ -73,36 +75,14 @@ export default class Tabs {
       item.saved && this.removeTab(item);
       item = item.next;
     }
-  }
-
-  public swapTab(tab, tab2) {
-    // same tab .. don't swap
-    if (tab === tab2) return;
-    const tabIsHead = this._isHead(tab);
-    const tab2IsHead = this._isHead(tab2);
-    const tabIsTail = this._isTail(tab);
-    const tab2isTail = this._isTail(tab2);
-
-    if (tabIsHead) {
-      this._head = tab2;
-    } else if (tab2IsHead) {
-      this._head = tab;
-    }
-
-    if (tabIsTail) {
-      this._tail = tab2;
-    } else if (tab2isTail) {
-      this._tail = tab;
-    }
-
-    let temp = tab;
-    tab = tab2;
+    return this.head;
   }
 
   public removeAll() {
     this._head = null;
     this._tail = null;
     this._size = 0;
+    return this._head;
   }
 
   public removeLeft(tab: Tab) {
@@ -114,6 +94,7 @@ export default class Tabs {
     isHead && isTail && (this._tail = this._head);
 
     this.reComputedSize();
+    return this.head;
   }
 
   public removeRight(tab: Tab) {
@@ -125,6 +106,18 @@ export default class Tabs {
     isHead && isTail && (this._head = this._tail);
 
     this.reComputedSize();
+    return this.head;
+  }
+
+  public swapTab(tab, tab2) {
+    // same tab .. don't swap
+    if (tab === tab2) return;
+    const tabIsHead = this._isHead(tab);
+    const tab2IsHead = this._isHead(tab2);
+
+    const tabIsTail = this._isTail(tab);
+    const tab2isTail = this._isTail(tab2);
+    return this.head;
   }
 
   public isEmpty() {
