@@ -15,7 +15,6 @@ const Textarea = styled.div`
   width: 100%;
   line-height: 20px;
   padding-left: 10px;
-  padding-top: 20px;
   padding-bottom: 20px;
   box-sizing: border-box;
 `;
