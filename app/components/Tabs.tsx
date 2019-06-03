@@ -9,6 +9,7 @@ const Container = styled.div`
 const Tab = styled.div`
   padding: 10px 15px;
   border-right: 1px solid #eae9e7;
+  user-select: none;
 `;
 
 export default function Tabs() {
