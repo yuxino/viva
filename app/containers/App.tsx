@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useRef, useState, useEffect } from 'react';
-import { Layout, MdEditor, MdPreview, VivaTitleBar } from '../components';
+import { Layout, MdEditor, MdPreview, VivaTitleBar, Tabs } from '../components';
 import { readFile } from 'fs-extra';
 
 export default () => {
@@ -57,17 +57,22 @@ export default () => {
       </Layout.Header>
       <Layout.Container>
         <Layout.Sidebar />
-        <Layout.Left>
-          <MdEditor
-            ref={editorRef}
-            onInput={inputHandle}
-            onScroll={scrollHanlder}
-            placeholder="type something here ..."
-          />
-        </Layout.Left>
-        <Layout.Right>
-          <MdPreview content={content} ref={previewRef} />
-        </Layout.Right>
+        <Layout.View>
+          <Tabs />
+          <Layout.Container>
+            <Layout.Left>
+              <MdEditor
+                ref={editorRef}
+                onInput={inputHandle}
+                onScroll={scrollHanlder}
+                placeholder="type something here ..."
+              />
+            </Layout.Left>
+            <Layout.Right>
+              <MdPreview content={content} ref={previewRef} />
+            </Layout.Right>
+          </Layout.Container>
+        </Layout.View>
       </Layout.Container>
     </Layout>
   );
