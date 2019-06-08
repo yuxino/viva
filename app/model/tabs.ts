@@ -214,7 +214,8 @@ export default class Tabs {
 
     if (prevTail === tab) {
       // change prevTail ...
-      this._tail.prev.prev.next = tempTail;
+      prevTail.prev.next = tempTail;
+      tempTail.prev = prevTail.prev;
       tempTail.next = tempTab;
       tempTab.prev = tempTail;
 
