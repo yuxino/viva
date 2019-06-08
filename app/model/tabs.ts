@@ -145,14 +145,31 @@ export default class Tabs {
   }
 
   private swapHeadTail() {
-    const temp = this._tail;
-    this._tail = this._head;
-    this._tail.next = null;
-    this._tail.prev = temp;
+    const tempTail = new Tab(this._tail);
+    const tempHead = new Tab(this._head);
 
-    this._head = temp;
-    this._head.prev = null;
-    this._head.next = this._tail;
+    const nextHead = this._head.next;
+    const prevTail = this._tail.prev;
+
+    if (nextHead === this._tail) {
+      this._head = tempTail;
+      tempTail.prev = null;
+      tempTail.next = tempHead;
+
+      this._tail = tempHead;
+      this._tail.next = null;
+      this._tail.prev = tempTail;
+    } else {
+      this._head = tempTail;
+      this._head.prev = null;
+
+      this._tail = tempHead;
+      this._tail.next = null;
+
+      prevTail.next = this._tail;
+      this._head.next = nextHead;
+      nextHead.prev = this._head;
+    }
   }
 
   private swapwithHead(tab) {
@@ -210,5 +227,17 @@ export default class Tabs {
         }
       }
     };
+  }
+
+  public toArray() {
+    let array = [];
+    for (let item of this) {
+      array.push(item);
+    }
+    return array;
+  }
+
+  public map() {
+    return this.toArray().map;
   }
 }

@@ -1922,6 +1922,11 @@ arrify@^1.0.0, arrify@^1.0.1:
   version "1.0.1"
   resolved "https://registry.npmjs.org/arrify/-/arrify-1.0.1.tgz#898508da2226f380df904728456849c1501a4b0d"
 
+asap@^2.0.6:
+  version "2.0.6"
+  resolved "https://registry.yarnpkg.com/asap/-/asap-2.0.6.tgz#e50347611d7e690943208bbdafebcbc2fb866d46"
+  integrity sha1-5QNHYR1+aQlDIIu9r+vLwvuGbUY=
+
 asn1.js@^4.0.0:
   version "4.10.1"
   resolved "https://registry.npmjs.org/asn1.js/-/asn1.js-4.10.1.tgz#b9c2bf5805f1e64aadeed6df3a2bfafb5a73f5a0"
@@ -4389,6 +4394,15 @@ dmg-builder@6.6.1:
     parse-color "^1.0.0"
     sanitize-filename "^1.6.1"
 
+dnd-core@^7.4.4:
+  version "7.4.4"
+  resolved "https://registry.yarnpkg.com/dnd-core/-/dnd-core-7.4.4.tgz#9a27d991a1c1e2882fa7888ea6132db04c739db1"
+  integrity sha512-xR8SINDCJG9AmKSjXUMJ1PEl8ih1+xSHH8x4DgBtzScXnEtpCnV1ibDZNV0uyps9VgkXTTbYYzJdF04y0v0e3Q==
+  dependencies:
+    asap "^2.0.6"
+    invariant "^2.2.4"
+    redux "^4.0.1"
+
 dns-equal@^1.0.0:
   version "1.0.0"
   resolved "https://registry.npmjs.org/dns-equal/-/dns-equal-1.0.0.tgz#b39e7f1da6eb0a75ba9c17324b34753c47e0654d"
@@ -6533,7 +6547,7 @@ interpret@^1.0.0, interpret@^1.1.0:
   version "1.1.0"
   resolved "https://registry.npmjs.org/interpret/-/interpret-1.1.0.tgz#7ed1b1410c6a0e0f78cf95d3b8440c63f78b8614"
 
-invariant@^2.2.1, invariant@^2.2.2, invariant@^2.2.4:
+invariant@^2.1.0, invariant@^2.2.1, invariant@^2.2.2, invariant@^2.2.4:
   version "2.2.4"
   resolved "https://registry.npmjs.org/invariant/-/invariant-2.2.4.tgz#610f3c92c9359ce1db616e538008d23ff35158e6"
   dependencies:
@@ -9861,6 +9875,23 @@ rc@^1.0.1, rc@^1.1.6, rc@^1.2.1, rc@^1.2.7:
     minimist "^1.2.0"
     strip-json-comments "~2.0.1"
 
+react-dnd-html5-backend@^7.4.4:
+  version "7.4.4"
+  resolved "https://registry.yarnpkg.com/react-dnd-html5-backend/-/react-dnd-html5-backend-7.4.4.tgz#3372e5af4af24f680cd75900c782606539c01220"
+  integrity sha512-X/lP92ateY0glHan8mU0JzjBuZL6VHv2Gc/H9OBBxaf/ZCN1oC16MLKdesqG4x1f/NWFTNtuG3W4B99r5gPVog==
+  dependencies:
+    dnd-core "^7.4.4"
+
+react-dnd@^7.4.5:
+  version "7.4.5"
+  resolved "https://registry.yarnpkg.com/react-dnd/-/react-dnd-7.4.5.tgz#cb4a2c97cd81f514d892c6cc2f020908ca7382a5"
+  integrity sha512-/689FECqmfNxHZJymC0Ge0Vt5A2oxXwcpVpFjM7O21ifzSh3YtZl83rre6Cosdc4Sx9ucrMq3sRxKMH9p/ekCg==
+  dependencies:
+    dnd-core "^7.4.4"
+    hoist-non-react-statics "^3.3.0"
+    invariant "^2.1.0"
+    shallowequal "^1.1.0"
+
 react-dom@^16.7.0:
   version "16.8.6"
   resolved "https://registry.yarnpkg.com/react-dom/-/react-dom-16.8.6.tgz#71d6303f631e8b0097f56165ef608f051ff6e10f"
@@ -10732,7 +10763,7 @@ shallow-clone@^1.0.0:
     kind-of "^5.0.0"
     mixin-object "^2.0.1"
 
-shallowequal@^1.0.2:
+shallowequal@^1.0.2, shallowequal@^1.1.0:
   version "1.1.0"
   resolved "https://registry.npmjs.org/shallowequal/-/shallowequal-1.1.0.tgz#188d521de95b9087404fd4dcb68b13df0ae4e7f8"
 
