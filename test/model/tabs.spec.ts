@@ -327,18 +327,11 @@ describe('model/tabs', () => {
       tabs.swapTab(tab, tab2);
 
       expect(tabs.head.prev).toEqual(null);
-      // expect(tabs.head.next).toEqual(tab2);
-
-      // expect(tabs.tail.prev).toEqual(tab);
       expect(tabs.tail.next).toEqual(null);
-
       expect(tabs.getArray()).toEqual([2, 1]);
-
-      // TODO: BUG FIX
-      // tabs.swapTab(tab2, tab);
     });
 
-    // swapHeadTail
+    // swapHeadTail;
     it('swap tail to head, order should be 2,1', () => {
       const tabs = new TestTabs();
 
@@ -350,142 +343,240 @@ describe('model/tabs', () => {
 
       tabs.swapTab(tab2, tab);
 
+      expect(tabs.head.prev).toEqual(null);
+      expect(tabs.tail.next).toEqual(null);
       expect(tabs.getArray()).toEqual([2, 1]);
     });
 
-    // // swapHeadTail
-    // it('swap head to tail, order should be 3,2,1', () => {
-    //   const tabs = new TestTabs();
+    // swapHeadTail
+    it('swap head to tail, order should be 3,2,1', () => {
+      const tabs = new TestTabs();
 
-    //   const tab = new TestTab(1);
-    //   tabs.addTab(tab);
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
 
-    //   const tab2 = new TestTab(2);
-    //   tabs.addTab(tab2);
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
 
-    //   const tab3 = new TestTab(3);
-    //   tabs.addTab(tab3);
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
 
-    //   tabs.swapTab(tab, tab3);
+      tabs.swapTab(tab, tab3);
 
-    //   expect(tabs.getArray()).toEqual([3, 2, 1]);
-    // });
+      expect(tabs.getArray()).toEqual([3, 2, 1]);
+    });
 
-    // // swapHeadTail
-    // it('swap tail to head, order should be 3,2,1', () => {
-    //   const tabs = new TestTabs();
+    // swapHeadTail
+    it('swap tail to head, order should be 3,2,1', () => {
+      const tabs = new TestTabs();
 
-    //   const tab = new TestTab(1);
-    //   tabs.addTab(tab);
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
 
-    //   const tab2 = new TestTab(2);
-    //   tabs.addTab(tab2);
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
 
-    //   const tab3 = new TestTab(3);
-    //   tabs.addTab(tab3);
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
 
-    //   tabs.swapTab(tab3, tab);
+      tabs.swapTab(tab3, tab);
 
-    //   expect(tabs.getArray()).toEqual([3, 2, 1]);
-    // });
+      expect(tabs.getArray()).toEqual([3, 2, 1]);
+    });
 
-    // // swapWithHead
-    // it('swap 1 to 2, order should be 2,1,3,4,5', () => {
-    //   const tabs = new TestTabs();
+    // swapWithHead
+    it('swap 1 to 2, order should be 2,1,3,4,5', () => {
+      const tabs = new TestTabs();
 
-    //   const tab = new TestTab(1);
-    //   tabs.addTab(tab);
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
 
-    //   const tab2 = new TestTab(2);
-    //   tabs.addTab(tab2);
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
 
-    //   const tab3 = new TestTab(3);
-    //   tabs.addTab(tab3);
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
 
-    //   const tab4 = new TestTab(4);
-    //   tabs.addTab(tab4);
+      const tab4 = new TestTab(4);
+      tabs.addTab(tab4);
 
-    //   const tab5 = new TestTab(5);
-    //   tabs.addTab(tab5);
+      const tab5 = new TestTab(5);
+      tabs.addTab(tab5);
 
-    //   tabs.swapTab(tab2, tab);
+      tabs.swapTab(tab2, tab);
 
-    //   expect(tabs.getArray()).toEqual([2, 1, 3, 4, 5]);
-    //   expect(tabs.head.prev).toBeNull();
-    // });
+      expect(tabs.getArray()).toEqual([2, 1, 3, 4, 5]);
+      expect(tabs.head.prev).toBeNull();
+    });
 
-    // // swapWithTail
-    // it('swap 4 to 5, order should be 1,2,3,5,4', () => {
-    //   const tabs = new TestTabs();
+    it('swap 1 to 3, order should be 3,2,1,4,5', () => {
+      const tabs = new TestTabs();
 
-    //   const tab = new TestTab(1);
-    //   tabs.addTab(tab);
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
 
-    //   const tab2 = new TestTab(2);
-    //   tabs.addTab(tab2);
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
 
-    //   const tab3 = new TestTab(3);
-    //   tabs.addTab(tab3);
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
 
-    //   const tab4 = new TestTab(4);
-    //   tabs.addTab(tab4);
+      const tab4 = new TestTab(4);
+      tabs.addTab(tab4);
 
-    //   const tab5 = new TestTab(5);
-    //   tabs.addTab(tab5);
+      const tab5 = new TestTab(5);
+      tabs.addTab(tab5);
 
-    //   tabs.swapTab(tab5, tab4);
+      tabs.swapTab(tab3, tab);
 
-    //   expect(tabs.getArray()).toEqual([1, 2, 3, 5, 4]);
-    //   expect(tabs.tail.next).toBeNull();
-    // });
+      expect(tabs.getArray()).toEqual([3, 2, 1, 4, 5]);
+      expect(tabs.head.prev).toBeNull();
+    });
 
-    // // swapBetween
-    // it('swap 3 to 4, order should be 1,2,4,3,5 ', () => {
-    //   const tabs = new TestTabs();
+    // swapWithTail
+    it('swap 4 to 5, order should be 1,2,3,5,4', () => {
+      const tabs = new TestTabs();
 
-    //   const tab = new TestTab(1);
-    //   tabs.addTab(tab);
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
 
-    //   const tab2 = new TestTab(2);
-    //   tabs.addTab(tab2);
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
 
-    //   const tab3 = new TestTab(3);
-    //   tabs.addTab(tab3);
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
 
-    //   const tab4 = new TestTab(4);
-    //   tabs.addTab(tab4);
+      const tab4 = new TestTab(4);
+      tabs.addTab(tab4);
 
-    //   const tab5 = new TestTab(5);
-    //   tabs.addTab(tab5);
+      const tab5 = new TestTab(5);
+      tabs.addTab(tab5);
 
-    //   tabs.swapTab(tab2, tab3);
+      tabs.swapTab(tab5, tab4);
 
-    //   expect(tabs.getArray()).toEqual([1, 3, 2, 4, 5]);
-    // });
+      expect(tabs.getArray()).toEqual([1, 2, 3, 5, 4]);
+      expect(tabs.tail.next).toBeNull();
+    });
 
-    // // swapBetween
-    // it('swap 3 to 4, order should be 1,4,3,2,5', () => {
-    //   const tabs = new TestTabs();
+    // swapWithTail
+    it('swap 3 to 5, order should be 1,2,5,4,3', () => {
+      const tabs = new TestTabs();
 
-    //   const tab = new TestTab(1);
-    //   tabs.addTab(tab);
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
 
-    //   const tab2 = new TestTab(2);
-    //   tabs.addTab(tab2);
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
 
-    //   const tab3 = new TestTab(3);
-    //   tabs.addTab(tab3);
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
 
-    //   const tab4 = new TestTab(4);
-    //   tabs.addTab(tab4);
+      const tab4 = new TestTab(4);
+      tabs.addTab(tab4);
 
-    //   const tab5 = new TestTab(5);
-    //   tabs.addTab(tab5);
+      const tab5 = new TestTab(5);
+      tabs.addTab(tab5);
 
-    //   tabs.swapTab(tab2, tab4);
+      tabs.swapTab(tab3, tab5);
 
-    //   expect(tabs.getArray()).toEqual([1, 4, 3, 2, 5]);
-    // });
+      expect(tabs.getArray()).toEqual([1, 2, 5, 4, 3]);
+    });
+
+    // swapBetween near
+    it('swap 2 to 3, order should be 1,2,4,3,5 ', () => {
+      const tabs = new TestTabs();
+
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
+
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
+
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
+
+      const tab4 = new TestTab(4);
+      tabs.addTab(tab4);
+
+      const tab5 = new TestTab(5);
+      tabs.addTab(tab5);
+
+      tabs.swapTab(tab2, tab3);
+
+      expect(tabs.getArray()).toEqual([1, 3, 2, 4, 5]);
+    });
+
+    // swapBetween near
+    it('swap 3 to 2, order should be 1,2,4,3,5 ', () => {
+      const tabs = new TestTabs();
+
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
+
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
+
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
+
+      const tab4 = new TestTab(4);
+      tabs.addTab(tab4);
+
+      const tab5 = new TestTab(5);
+      tabs.addTab(tab5);
+
+      tabs.swapTab(tab3, tab2);
+
+      expect(tabs.getArray()).toEqual([1, 3, 2, 4, 5]);
+    });
+
+    // swapBetween
+    it('swap 2 to 4, order should be 1,4,3,2,5 ', () => {
+      const tabs = new TestTabs();
+
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
+
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
+
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
+
+      const tab4 = new TestTab(4);
+      tabs.addTab(tab4);
+
+      const tab5 = new TestTab(5);
+      tabs.addTab(tab5);
+
+      tabs.swapTab(tab2, tab4);
+
+      expect(tabs.getArray()).toEqual([1, 4, 3, 2, 5]);
+    });
+
+    // swapBetween
+    it('swap 4 to 2, order should be 1,4,3,2,5 ', () => {
+      const tabs = new TestTabs();
+
+      const tab = new TestTab(1);
+      tabs.addTab(tab);
+
+      const tab2 = new TestTab(2);
+      tabs.addTab(tab2);
+
+      const tab3 = new TestTab(3);
+      tabs.addTab(tab3);
+
+      const tab4 = new TestTab(4);
+      tabs.addTab(tab4);
+
+      const tab5 = new TestTab(5);
+      tabs.addTab(tab5);
+
+      tabs.swapTab(tab4, tab2);
+
+      expect(tabs.getArray()).toEqual([1, 4, 3, 2, 5]);
+    });
   });
 
   describe('iterable', () => {

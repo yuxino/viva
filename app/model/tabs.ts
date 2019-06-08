@@ -119,7 +119,6 @@ export default class Tabs {
     const tempTab = new Tab(tab);
     const tempTab2 = new Tab(tab2);
     // near ...
-    // prevTab <-> tempTab2 <-> tempTab2 <-> nextTab2
     if (tab === prevTab2) {
       prevTab.next = tempTab2;
       nextTab2.prev = tempTab;
@@ -129,6 +128,13 @@ export default class Tabs {
 
       tempTab.prev = tempTab2;
       tempTab.next = nextTab2;
+    } else if (tab === nextTab2) {
+      prevTab2.next = tempTab;
+      tempTab.prev = prevTab2;
+
+      tempTab.next = tempTab2;
+      tempTab2.next = nextTab;
+      nextTab.prev = tempTab2;
     } else {
       // prevTab <-> tempTab2 <-> nextTab
       prevTab.next = tempTab2; // 1 -> 2
@@ -151,14 +157,14 @@ export default class Tabs {
     const nextHead = this._head.next;
     const prevTail = this._tail.prev;
 
-    if (nextHead === this._tail) {
+    if (this.size > 2) {
       this._head = tempTail;
-      tempTail.prev = null;
-      tempTail.next = tempHead;
+      this._head.next = nextHead;
+      nextHead.prev = this._head;
 
       this._tail = tempHead;
-      this._tail.next = null;
-      this._tail.prev = tempTail;
+      this._tail.prev = prevTail;
+      prevTail.next = this._tail;
     } else {
       this._head = tempTail;
       this._head.prev = null;
@@ -166,28 +172,63 @@ export default class Tabs {
       this._tail = tempHead;
       this._tail.next = null;
 
-      prevTail.next = this._tail;
-      this._head.next = nextHead;
-      nextHead.prev = this._head;
+      this._head.next = this._tail;
+      this._tail.prev = this._head;
     }
   }
 
-  private swapwithHead(tab) {
-    this._head.next = tab.next;
-    this._head.prev = tab;
+  private swapWithHead(tab) {
+    const tempTab = new Tab(tab);
+    const tempHead = new Tab(this._head);
 
-    tab.prev = null;
-    tab.next = this._head;
-    this._head = tab;
+    const nextHead = this._head.next;
+    const nextTab = tab.next;
+    const prevTab = tab.prev;
+
+    if (nextHead === tab) {
+      this._head = tempTab;
+      this._head.next = tempHead;
+      tempHead.prev = this._head;
+
+      nextTab.prev = tempHead;
+      tempHead.next = nextTab;
+    } else {
+      this._head = tempTab;
+      this._head.next = nextHead;
+
+      nextTab.prev = tempHead;
+      prevTab.next = tempHead;
+
+      tempHead.prev = prevTab;
+      tempHead.next = nextTab;
+    }
   }
 
   private swapWithTail(tab) {
-    tab.prev.next = this.tail;
-    this.tail.prev = tab.prev;
+    const tempTab = new Tab(tab);
+    const tempTail = new Tab(this._tail);
 
-    this._tail.next = tab;
-    this._tail = tab;
-    tab.next = null;
+    const prevTail = this._tail.prev;
+    const prevTab = tab.prev;
+    const nextTab = tab.next;
+
+    if (prevTail === tab) {
+      // change prevTail ...
+      this._tail.prev.prev.next = tempTail;
+      tempTail.next = tempTab;
+      tempTab.prev = tempTail;
+
+      this._tail = tempTab;
+    } else {
+      prevTab.next = tempTail;
+      tempTail.prev = prevTab;
+      nextTab.prev = tempTail;
+      tempTail.next = nextTab;
+
+      this._tail = tempTab;
+      prevTail.next = this._tail;
+      this._tail.prev = prevTail;
+    }
   }
 
   public swapTab(tab, tab2) {
@@ -203,7 +244,7 @@ export default class Tabs {
     } else if ((tabIsHead && tab2IsTail) || (tab2IsHead && tabIsTail)) {
       this.swapHeadTail();
     } else if (tabIsHead || tab2IsHead) {
-      this.swapwithHead(tabIsHead ? tab2 : tab);
+      this.swapWithHead(tabIsHead ? tab2 : tab);
     } else if (tabIsTail || tab2IsTail) {
       this.swapWithTail(tabIsTail ? tab2 : tab);
     }
