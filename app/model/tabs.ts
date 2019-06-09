@@ -44,7 +44,7 @@ export default class Tabs {
       this._tail = tab;
     }
     this._size = this._size + 1;
-    return this.head;
+    return this;
   }
 
   public removeTab(tab) {
@@ -280,9 +280,5 @@ export default class Tabs {
       array.push(item);
     }
     return array;
-  }
-
-  public map(fn) {
-    return this.getArray().map(fn);
   }
 }
