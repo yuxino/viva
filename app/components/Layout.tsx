@@ -26,10 +26,12 @@ const Right = styled.div`
 
 const Header = styled.div`
   border-bottom: 1px solid #eae9e7;
+  overflow: hidden;
 `;
 
 const View = styled(Box)`
   flex: 1;
+  overflow: hidden;
 `;
 
 function Layout({ children }) {
