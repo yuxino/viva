@@ -109,7 +109,6 @@ export default class Tabs {
     return this.head;
   }
 
-  // TODO: also has bug in near .. missing next ...
   private swapBetween(tab, tab2) {
     const prevTab = tab.prev;
     const nextTab = tab.next;
@@ -283,7 +282,7 @@ export default class Tabs {
     return array;
   }
 
-  public map() {
-    return this.getArray().map;
+  public map(fn) {
+    return this.getArray().map(fn);
   }
 }
