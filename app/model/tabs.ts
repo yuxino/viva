@@ -109,6 +109,7 @@ export default class Tabs {
     return this.head;
   }
 
+  // TODO: also has bug in near .. missing next ...
   private swapBetween(tab, tab2) {
     const prevTab = tab.prev;
     const nextTab = tab.next;
@@ -118,21 +119,24 @@ export default class Tabs {
 
     const tempTab = new Tab(tab);
     const tempTab2 = new Tab(tab2);
-    // near ...
+    // 1 -> 2
     if (tab === prevTab2) {
       prevTab.next = tempTab2;
-      nextTab2.prev = tempTab;
-
       tempTab2.prev = prevTab;
-      tempTab2.next = tempTab;
 
+      tempTab2.next = tempTab;
       tempTab.prev = tempTab2;
+
       tempTab.next = nextTab2;
-    } else if (tab === nextTab2) {
+      nextTab2.prev = tempTab;
+    }
+    // 2 <- 1
+    else if (tab === nextTab2) {
       prevTab2.next = tempTab;
       tempTab.prev = prevTab2;
 
       tempTab.next = tempTab2;
+      tempTab2.prev = tempTab;
       tempTab2.next = nextTab;
       nextTab.prev = tempTab2;
     } else {
@@ -271,7 +275,7 @@ export default class Tabs {
     };
   }
 
-  public toArray() {
+  public getArray() {
     let array = [];
     for (let item of this) {
       array.push(item);
@@ -280,6 +284,6 @@ export default class Tabs {
   }
 
   public map() {
-    return this.toArray().map;
+    return this.getArray().map;
   }
 }
