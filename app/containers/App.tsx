@@ -17,14 +17,14 @@ export default () => {
     document
       .getElementById('root')
       .addEventListener('drop', async function(event) {
-        event.preventDefault();
-        // single file ...
-        const file = event.dataTransfer.files[0];
-        const path = file.path;
-        const buffer = await readFile(path);
-        const content = buffer.toString();
-        editor.innerText = content;
-        setContent(content);
+        // event.preventDefault();
+        // // single file ...
+        // const file = event.dataTransfer.files[0];
+        // const path = file.path;
+        // const buffer = await readFile(path);
+        // const content = buffer.toString();
+        // editor.innerText = content;
+        // setContent(content);
       });
 
     document.getElementById('root').addEventListener('dragover', function() {

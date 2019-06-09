@@ -1,4 +1,4 @@
-enum TAB {
+enum TABS {
   CLOSE_TAB = 'TAB_CLOSE_TAB', // close one tab
   CLOSE_ALL_TABS = 'TAB_CLOSE_ALL_TABS', // close all tab
   CLOSE_LEFT_TABS = 'TAB_CLOSE_LEFT_TABS', // close tabs on the left side of tab
@@ -7,4 +7,4 @@ enum TAB {
   UPDATE_TAB_ORDER = 'TAB_UPDATE_TAB_ORDER' // update tab order
 }
 
-export default TAB;
+export default TABS;

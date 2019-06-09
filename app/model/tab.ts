@@ -4,11 +4,10 @@ export default class Tab {
   public _next = null;
   public data = {};
 
-  constructor(tab?: Tab) {
+  constructor(tab?) {
     if (tab) {
       this.saved = tab.saved;
       this.data = tab.data;
-      if (tab['name']) this['name'] = tab['name'];
     }
   }
 
