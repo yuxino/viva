@@ -7,7 +7,8 @@ import h5DnD from '../dnd/h5DnD';
 import Tab from './Tab';
 
 const Container = styled.div`
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: ${({ isEmpty }: { isEmpty: boolean }) =>
+    !isEmpty && '1px solid #eae9e7'};
   display: flex;
   overflow-x: auto;
 `;
@@ -19,12 +20,13 @@ const Tabs = function() {
   const updateTabsOrder = payload =>
     dispath({ type: TabsAction.UPDATE_TAB_ORDER, payload });
 
-  const { tabs } = useMappedState(state => ({
-    tabs: state.tabs.tabs
+  const { tabs, isEmpty } = useMappedState(state => ({
+    tabs: state.tabs.tabs,
+    isEmpty: state.tabs.isEmpty
   }));
 
   return (
-    <Container>
+    <Container isEmpty={isEmpty}>
       {tabs.map((tab, idx) => (
         <DnDTab item={tab} key={idx} update={updateTabsOrder}>
           {tab.data.name}
