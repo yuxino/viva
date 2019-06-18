@@ -1,8 +1,7 @@
 import { all } from 'redux-saga/effects';
-import counterSags from './counter.sagas';
 
 function* watchAll() {
-  yield all([...counterSags]);
+  yield all([]);
 }
 
 export default watchAll;
