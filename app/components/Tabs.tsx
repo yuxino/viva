@@ -2,8 +2,7 @@ import * as React from 'react';
 import styled from 'styled-components';
 import { useMappedState, useDispatch } from 'redux-react-hook';
 import TabsAction from '../actions/tabs';
-import { Dropable, Dragable } from '../dnd/tab';
-import h5DnD from '../dnd/h5DnD';
+import { Dropable, Dragable } from '../dnd/Tab';
 import Tab from './Tab';
 
 const Container = styled.div`
@@ -36,4 +35,4 @@ const Tabs = function() {
   );
 };
 
-export default h5DnD(Tabs);
+export default Tabs;

@@ -1,36 +1,14 @@
 import * as React from 'react';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState } from 'react';
 import { Layout, MdEditor, MdPreview, VivaTitleBar, Tabs } from '../components';
-import { readFile } from 'fs-extra';
+import FileDrop from '../dnd/FileDrop';
+import H5DnD from '../dnd/h5DnD';
 
-export default () => {
+function App() {
   const [content, setContent] = useState('');
+
   const editorRef = useRef<HTMLDivElement>();
   const previewRef = useRef<HTMLDivElement>();
-
-  // init editor content
-  // useEffect(() => {
-  //   const editor = editorRef.current;
-  //   editor.innerText = content;
-  //   editor.focus();
-
-  //   document
-  //     .getElementById('root')
-  //     .addEventListener('drop', async function(event) {
-  //       event.preventDefault();
-  //       // single file ...
-  //       const file = event.dataTransfer.files[0];
-  //       const path = file.path;
-  //       const buffer = await readFile(path);
-  //       const content = buffer.toString();
-  //       editor.innerText = content;
-  //       setContent(content);
-  //     });
-
-  //   document.getElementById('root').addEventListener('dragover', function() {
-  //     event.preventDefault();
-  //   });
-  // }, [editorRef]);
 
   // handle editor input
   const inputHandle = () => {
@@ -51,29 +29,33 @@ export default () => {
   };
 
   return (
-    <Layout>
-      <Layout.Header>
-        <VivaTitleBar title="Untitled-1" />
-      </Layout.Header>
-      <Layout.Container>
-        <Layout.Sidebar />
-        <Layout.View>
-          <Tabs />
-          <Layout.Container>
-            <Layout.Left>
-              <MdEditor
-                ref={editorRef}
-                onInput={inputHandle}
-                onScroll={scrollHanlder}
-                placeholder="type something here ..."
-              />
-            </Layout.Left>
-            <Layout.Right>
-              <MdPreview content={content} ref={previewRef} />
-            </Layout.Right>
-          </Layout.Container>
-        </Layout.View>
-      </Layout.Container>
-    </Layout>
+    <FileDrop>
+      <Layout>
+        <Layout.Header>
+          <VivaTitleBar title="" />
+        </Layout.Header>
+        <Layout.Container>
+          <Layout.Sidebar />
+          <Layout.View>
+            <Tabs />
+            <Layout.Container>
+              <Layout.Left>
+                <MdEditor
+                  ref={editorRef}
+                  onInput={inputHandle}
+                  onScroll={scrollHanlder}
+                  placeholder="type something here ..."
+                />
+              </Layout.Left>
+              <Layout.Right>
+                <MdPreview content={content} ref={previewRef} />
+              </Layout.Right>
+            </Layout.Container>
+          </Layout.View>
+        </Layout.Container>
+      </Layout>
+    </FileDrop>
   );
-};
+}
+
+export default H5DnD(App);

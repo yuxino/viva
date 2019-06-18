@@ -18,6 +18,13 @@ const Textarea = styled.div`
   padding-left: 10px;
   padding-bottom: 20px;
   box-sizing: border-box;
+  &:empty:before {
+    content: attr(placeholder);
+    color: #54545480;
+  }
+  &:focus:before {
+    content: none;
+  }
 `;
 
 const MdEditor = React.forwardRef(
@@ -30,8 +37,8 @@ const MdEditor = React.forwardRef(
         ref={ref}
         onInput={onInput}
         onScroll={onScroll}
-        placeholder={placeholder}
         contentEditable={true}
+        placeholder={placeholder}
       />
     );
   }
