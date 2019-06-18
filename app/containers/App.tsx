@@ -1,10 +1,16 @@
 import * as React from 'react';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { Layout, MdEditor, MdPreview, VivaTitleBar, Tabs } from '../components';
+import { useDispatch } from 'redux-react-hook';
+import ViewActions from '../actions/view';
 import FileDrop from '../dnd/FileDrop';
 import H5DnD from '../dnd/h5DnD';
 
 function App() {
+  const dispath = useDispatch();
+  const updateEditorSyncFn = payload =>
+    dispath({ type: ViewActions.UPDATE_EDITOR_SYNC_FN, payload });
+
   const [content, setContent] = useState('');
 
   const editorRef = useRef<HTMLDivElement>();
@@ -14,6 +20,12 @@ function App() {
   const inputHandle = () => {
     const editor = editorRef.current;
     setContent(editor.innerText);
+  };
+
+  const edtiorSyncFn = content => {
+    const editor = editorRef.current;
+    editor.innerText = content;
+    setContent(content);
   };
 
   const scrollHanlder = e => {
@@ -27,6 +39,11 @@ function App() {
       preview.scrollTop = height;
     }, 0);
   };
+
+  // async editor ref in reducer
+  useEffect(() => {
+    updateEditorSyncFn({ edtiorSyncFn });
+  }, [editorRef]);
 
   return (
     <FileDrop>

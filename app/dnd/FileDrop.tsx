@@ -2,8 +2,9 @@ import * as React from 'react';
 import { ConnectDropTarget, DropTargetMonitor } from 'react-dnd';
 import { DropTarget, DropTargetConnector } from 'react-dnd';
 import { NativeTypes } from 'react-dnd-html5-backend';
-import { readFile } from 'fs-extra';
+import { readFile, stat } from 'fs-extra';
 import styled from 'styled-components';
+import { store } from '../store/configureStore';
 
 export interface DragTargetProps {
   isOver: boolean;
@@ -45,10 +46,9 @@ export default DropTarget(
         const buffer = await readFile(path);
         const content = buffer.toString();
 
-        console.log(content);
+        const { edtiorSyncFn } = store.getState().view;
 
-        // editor.innerText = content;
-        // setContent(content);
+        edtiorSyncFn(content);
       })();
     }
   },
