@@ -1,6 +1,13 @@
 import * as React from 'react';
 import { useRef, useState, useEffect } from 'react';
-import { Layout, MdEditor, MdPreview, VivaTitleBar, Tabs } from '../components';
+import {
+  Layout,
+  MdEditor,
+  MdPreview,
+  VivaTitleBar,
+  Tabs,
+  WorkBench
+} from '../components';
 import { useDispatch } from 'redux-react-hook';
 import ViewActions from '../actions/view';
 import FileDrop from '../dnd/FileDrop';
@@ -53,6 +60,7 @@ function App() {
         </Layout.Header>
         <Layout.Container>
           <Layout.Sidebar />
+          <WorkBench />
           <Layout.View>
             <Tabs />
             <Layout.Container>
