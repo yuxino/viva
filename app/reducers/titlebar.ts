@@ -1,4 +1,5 @@
 import produce from 'immer';
+import TitleBarActions from '../actions/titlebar';
 
 export const initState = function() {
   return {
@@ -8,6 +9,9 @@ export const initState = function() {
 
 export default (state = initState(), action) =>
   produce(state, draft => {
-    // do sth ..
-    // switch 'TITILEBAR_UPDATE_TITLE':
+    switch (action.type) {
+      case TitleBarActions.UPDATE_TITLE: {
+        draft.title = action.payload.title;
+      }
+    }
   });

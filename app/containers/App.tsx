@@ -49,7 +49,7 @@ function App() {
     <FileDrop>
       <Layout>
         <Layout.Header>
-          <VivaTitleBar title="" />
+          <VivaTitleBar />
         </Layout.Header>
         <Layout.Container>
           <Layout.Sidebar />
