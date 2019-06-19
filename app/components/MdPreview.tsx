@@ -12,6 +12,7 @@ const Preview = styled.div`
   overflow: auto;
   height: 100%;
   box-sizing: border-box;
+  font-size: 18px;
 `;
 
 const MdPreview = React.forwardRef(
