@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import TitleBar from './TitleBar';
 import { ipcRenderer } from 'electron';
 import { Close } from 'styled-icons/evil/Close';
+import { useMappedState } from 'redux-react-hook';
 
 const CloseIcon = styled(Close)`
   -webkit-app-region: no-drag;
@@ -13,10 +14,14 @@ const Title = styled(TitleBar.Content)`
   font-size: 14px;
 `
 
-export default function ({ title }) {
+export default function () {
   const exitApp = () => {
     ipcRenderer.send('close');
   };
+
+  const { title } = useMappedState(state => ({
+    title: state.titlebar.title
+  }))
 
   return (
     <TitleBar>

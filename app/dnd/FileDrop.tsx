@@ -5,6 +5,7 @@ import { NativeTypes } from 'react-dnd-html5-backend';
 import { readFile } from 'fs-extra';
 import styled from 'styled-components';
 import { store } from '../store/configureStore';
+import ViewActions from '../actions/view';
 
 export interface DragTargetProps {
   isOver: boolean;
@@ -42,13 +43,15 @@ export default DropTarget(
         // single file ...
         const file = files[0];
         const path = file.path;
-
         const buffer = await readFile(path);
         const content = buffer.toString();
+        const fileInfo = { content, name: file.name };
 
-        const { edtiorSyncFn } = store.getState().view;
-
-        edtiorSyncFn(content);
+        // update tabs view
+        store.dispatch({
+          type: ViewActions.TABS_UPDATE,
+          payload: { fileInfo }
+        });
       })();
     }
   },
