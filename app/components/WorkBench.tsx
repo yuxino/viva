@@ -6,8 +6,8 @@ const Container = styled.div`
   border-right: 1px solid #eae9e7;
 `;
 
-function WorkBench() {
-  return <Container>WorkBench</Container>;
+function WorkBench({ children }) {
+  return <Container>{children}</Container>;
 }
 
 export default WorkBench;
