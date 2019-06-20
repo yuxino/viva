@@ -12,16 +12,16 @@ const CloseIcon = styled(Close)`
 
 const Title = styled(TitleBar.Content)`
   font-size: 14px;
-`
+`;
 
-export default function () {
+export default function() {
   const exitApp = () => {
     ipcRenderer.send('close');
   };
 
   const { title } = useMappedState(state => ({
     title: state.titlebar.title
-  }))
+  }));
 
   return (
     <TitleBar>
