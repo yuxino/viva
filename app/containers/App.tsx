@@ -56,11 +56,15 @@ function App() {
     const editor = editorRef.current;
     const preview = previewRef.current;
 
+    // scroll target
+    const t1 = e.target === editor ? editor : preview;
+    const t2 = t1 === editor ? preview : editor;
+
     setTimeout(() => {
-      var percentage =
-        editor.scrollTop / (editor.scrollHeight - editor.offsetHeight);
-      var height = percentage * (preview.scrollHeight - preview.offsetHeight);
-      preview.scrollTop = height;
+      const percentage =
+        t1.scrollTop / (t1.scrollHeight - t1.offsetHeight);
+      const height = percentage * (t2.scrollHeight - t2.offsetHeight);
+      t2.scrollTop = height;
     }, 0);
   };
 
@@ -89,7 +93,10 @@ function App() {
                 />
               </Layout.Left>
               <Layout.Right>
-                <MdPreview content={content} ref={previewRef} />
+                <MdPreview 
+                  content={content}
+                  ref={previewRef} 
+                  onScroll={scrollHanlder}/>
               </Layout.Right>
             </Layout.Container>
           </Layout.View>
