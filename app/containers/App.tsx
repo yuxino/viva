@@ -5,13 +5,30 @@ import {
   MdEditor,
   MdPreview,
   VivaTitleBar,
-  Tabs,
-  WorkBench
+  Tabs
+  // WorkBench
 } from '../components';
 import { useDispatch } from 'redux-react-hook';
 import ViewActions from '../actions/view';
 import FileDrop from '../dnd/FileDrop';
 import H5DnD from '../dnd/h5DnD';
+
+/**
+ * APP Layout ⤵️
+ *
+ * FileDrop
+ * |> titlebar
+ * |> sidebar
+ *     |> workbench
+       |> bottomIconGroup
+ * |>  main
+ *     |> tabs
+ *     |> container
+ *       |> left
+ *         |> MdEditor
+ *       |> right
+ *         |> MdPreview
+ */
 
 function App() {
   const dispath = useDispatch();
@@ -60,7 +77,6 @@ function App() {
         </Layout.Header>
         <Layout.Container>
           <Layout.Sidebar />
-          <WorkBench />
           <Layout.View>
             <Tabs />
             <Layout.Container>
