@@ -6,6 +6,7 @@ const md = MarkdownIt();
 
 interface Props {
   content: string;
+  onScroll(event?): void;
 }
 
 const Preview = styled.div`
@@ -16,10 +17,11 @@ const Preview = styled.div`
 `;
 
 const MdPreview = React.forwardRef(
-  ({ content: html }: Props, ref: React.Ref<HTMLDivElement>) => {
+  ({ onScroll, content: html }: Props, ref: React.Ref<HTMLDivElement>) => {
     return (
       <Preview
         ref={ref}
+        onScroll={onScroll}
         className="markdown-body"
         dangerouslySetInnerHTML={{ __html: md.render(html) }}
       />
