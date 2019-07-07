@@ -5,10 +5,10 @@ import TabsAction from '../actions/tabs';
 const tabs = new Tabs();
 
 tabs.addTab(new Tab({ data: { name: 'Tabs.md' } }));
-// tabs.addTab(new Tab({ data: { name: 'README.md' } }));
-// tabs.addTab(new Tab({ data: { name: 'Javascript in Action.md' } }));
-// tabs.addTab(new Tab({ data: { name: 'Flutter App introduction.md' } }));
-// tabs.addTab(new Tab({ data: { name: '21天精通c++.md' } }));
+tabs.addTab(new Tab({ data: { name: 'README.md' } }));
+tabs.addTab(new Tab({ data: { name: 'Javascript in Action.md' } }));
+tabs.addTab(new Tab({ data: { name: 'Flutter App introduction.md' } }));
+tabs.addTab(new Tab({ data: { name: '21天精通c++.md' } }));
 
 export const initState = function() {
   return {
