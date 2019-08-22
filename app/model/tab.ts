@@ -5,10 +5,10 @@ export default class Tab {
   public _next = null;
   public data = {};
 
-  constructor(tab?) {
-    if (tab) {
-      this.saved = tab.saved;
-      this.data = tab.data;
+  constructor(options?) {
+    if (options) {
+      this.saved = options.saved ? options.saved : true;
+      this.data = options.data;
     }
   }
 
