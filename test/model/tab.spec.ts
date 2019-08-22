@@ -1,4 +1,4 @@
-import Tab from '../../app/model/tab';
+import Tab from '../../app/model/Tab';
 
 describe('model/tabs', () => {
   it('when init saved should be ture', () => {

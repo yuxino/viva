@@ -1,5 +1,5 @@
-import Tabs from '../../app/model/tabs';
-import Tab from '../../app/model/tab';
+import Tabs from '../../app/model/Tabs';
+import Tab from '../../app/model/Tab';
 
 class TestTabs extends Tabs {
   getArray() {
