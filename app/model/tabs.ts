@@ -1,30 +1,37 @@
-import Tab from './tab';
+import Tab from './Tab';
 
+// describe the Tabs
 export default class Tabs {
   private _size = 0;
   private _head: Tab = null;
   private _tail: Tab = null;
 
+  // get tabs first item
   get head() {
     return this._head;
   }
 
+  // get tabs last item
   get tail() {
     return this._tail;
   }
 
+  // get tabs size
   get size() {
     return this._size;
   }
 
+  // check tab is head whether or not
   private _isHead(tab) {
     return this._head === tab;
   }
 
+  // check tab is tail whether or not
   private _isTail(tab) {
     return this._tail === tab;
   }
 
+  // reComputed the tabs size
   private reComputedSize() {
     let item = this._head;
     this._size = 0;
@@ -34,6 +41,7 @@ export default class Tabs {
     }
   }
 
+  // add tab to tabs
   public addTab(tab: Tab) {
     if (!this._head) {
       this._head = tab;
@@ -47,6 +55,7 @@ export default class Tabs {
     return this;
   }
 
+  // remove tab from tabs
   public removeTab(tab) {
     const isHead = this._isHead(tab);
     const isTail = this._isTail(tab);
@@ -69,6 +78,7 @@ export default class Tabs {
     return this.head;
   }
 
+  // remove all saved status tab
   public removeSavedTab() {
     let item = this._head;
     while (item) {
@@ -78,6 +88,7 @@ export default class Tabs {
     return this.head;
   }
 
+  // empty tabs
   public removeAll() {
     this._head = null;
     this._tail = null;
@@ -85,6 +96,7 @@ export default class Tabs {
     return this._head;
   }
 
+  // rremove tabs on the left side of `tab`
   public removeLeft(tab: Tab) {
     const isHead = this._isHead(tab);
     const isTail = this._isTail(tab);
@@ -97,6 +109,7 @@ export default class Tabs {
     return this.head;
   }
 
+  // rremove tabs on the right side of `tab`
   public removeRight(tab: Tab) {
     const isHead = this._isHead(tab);
     const isTail = this._isTail(tab);
@@ -109,6 +122,7 @@ export default class Tabs {
     return this.head;
   }
 
+  // swap two tab position
   private swapBetween(tab, tab2) {
     const prevTab = tab.prev;
     const nextTab = tab.next;
@@ -118,7 +132,6 @@ export default class Tabs {
 
     const tempTab = new Tab(tab);
     const tempTab2 = new Tab(tab2);
-    // 1 -> 2
     if (tab === prevTab2) {
       prevTab.next = tempTab2;
       tempTab2.prev = prevTab;
@@ -128,9 +141,7 @@ export default class Tabs {
 
       tempTab.next = nextTab2;
       nextTab2.prev = tempTab;
-    }
-    // 2 <- 1
-    else if (tab === nextTab2) {
+    } else if (tab === nextTab2) {
       prevTab2.next = tempTab;
       tempTab.prev = prevTab2;
 
@@ -140,8 +151,8 @@ export default class Tabs {
       nextTab.prev = tempTab2;
     } else {
       // prevTab <-> tempTab2 <-> nextTab
-      prevTab.next = tempTab2; // 1 -> 2
-      nextTab.prev = tempTab2; //
+      prevTab.next = tempTab2;
+      nextTab.prev = tempTab2;
       tempTab2.prev = prevTab;
       tempTab2.next = nextTab;
 
@@ -153,6 +164,7 @@ export default class Tabs {
     }
   }
 
+  // swap head item and tail item
   private swapHeadTail() {
     const tempTail = new Tab(this._tail);
     const tempHead = new Tab(this._head);
@@ -180,6 +192,7 @@ export default class Tabs {
     }
   }
 
+  // swap tab to head
   private swapWithHead(tab) {
     const tempTab = new Tab(tab);
     const tempHead = new Tab(this._head);
@@ -207,6 +220,7 @@ export default class Tabs {
     }
   }
 
+  // swap tab to tail
   private swapWithTail(tab) {
     const tempTab = new Tab(tab);
     const tempTail = new Tab(this._tail);
@@ -235,6 +249,7 @@ export default class Tabs {
     }
   }
 
+  // swap two tab posiiton
   public swapTab(tab, tab2) {
     if (tab === tab2) return;
     const tabIsHead = this._isHead(tab);
@@ -255,10 +270,12 @@ export default class Tabs {
     return this.head;
   }
 
+  // check tabs is empty whether or not
   public isEmpty() {
     return this.size === 0;
   }
 
+  // let tabs can use in for..of
   [Symbol.iterator]() {
     let item = this.head;
     return {
@@ -274,6 +291,7 @@ export default class Tabs {
     };
   }
 
+  // chang tabs to an array
   public getArray() {
     let array = [];
     for (let item of this) {
