@@ -1,7 +1,6 @@
 import { takeEvery, put, select } from 'redux-saga/effects';
 import TitleBarActions from '../actions/titlebar';
 import ViewActions from '../actions/view';
-import { stat } from 'fs';
 
 // worker Saga: will be fired on USER_FETCH_REQUESTED actions
 function* tabs_update(action) {
