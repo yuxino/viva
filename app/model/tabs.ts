@@ -132,6 +132,7 @@ export default class Tabs {
 
     const tempTab = new Tab(tab);
     const tempTab2 = new Tab(tab2);
+    // near
     if (tab === prevTab2) {
       prevTab.next = tempTab2;
       tempTab2.prev = prevTab;
@@ -141,24 +142,29 @@ export default class Tabs {
 
       tempTab.next = nextTab2;
       nextTab2.prev = tempTab;
-    } else if (tab === nextTab2) {
+    }
+    // near
+    else if (tab === nextTab2) {
       prevTab2.next = tempTab;
       tempTab.prev = prevTab2;
 
       tempTab.next = tempTab2;
       tempTab2.prev = tempTab;
+
       tempTab2.next = nextTab;
       nextTab.prev = tempTab2;
     } else {
       // prevTab <-> tempTab2 <-> nextTab
       prevTab.next = tempTab2;
       nextTab.prev = tempTab2;
+
       tempTab2.prev = prevTab;
       tempTab2.next = nextTab;
 
       // prevTab2 <-> tempTab <-> nextTab2
       prevTab2.next = tempTab;
       nextTab2.prev = tempTab;
+
       tempTab.prev = prevTab2;
       tempTab.next = nextTab2;
     }
@@ -202,6 +208,7 @@ export default class Tabs {
     const prevTab = tab.prev;
 
     if (nextHead === tab) {
+      tempTab.prev = null;
       this._head = tempTab;
       this._head.next = tempHead;
       tempHead.prev = this._head;
@@ -209,8 +216,11 @@ export default class Tabs {
       nextTab.prev = tempHead;
       tempHead.next = nextTab;
     } else {
+      tempTab.prev = null;
       this._head = tempTab;
       this._head.next = nextHead;
+      tempTab.next = this._head.next;
+      nextHead.prev = this._head;
 
       nextTab.prev = tempHead;
       prevTab.next = tempHead;
@@ -257,7 +267,7 @@ export default class Tabs {
     const tabIsTail = this._isTail(tab);
     const tab2IsTail = this._isTail(tab2);
     const bothInMid = !tabIsHead && !tabIsTail && !tab2IsHead && !tab2IsTail;
-
+    debugger;
     if (bothInMid) {
       this.swapBetween(tab, tab2);
     } else if ((tabIsHead && tab2IsTail) || (tab2IsHead && tabIsTail)) {

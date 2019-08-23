@@ -1,7 +1,58 @@
 import Tabs from '../../app/model/Tabs';
 import Tab from '../../app/model/Tab';
 
+// helper funtion to get tabs data
 const mapData = (tabs: Tabs) => tabs.getArray().map(tab => tab.data);
+
+// helper funtion to get tabs step
+const step = (tabs: Tabs, num) => {
+  let head = tabs.head;
+  for (let i = 1; i < num; i++) {
+    head = head.next;
+  }
+  return head;
+};
+
+// helper funtion to check tabs step
+const stepCheck = (tabs: Tabs) => {
+  const size = tabs.size;
+  for (let i = 1; i <= size; i++) {
+    // head prev null check
+
+    if (i === 1 && step(tabs, i).prev !== null) {
+      console.error('head prev not null');
+      return false;
+    }
+    // tail next null check
+    if (i === size && step(tabs, i).next !== null) {
+      console.error('tail next not null');
+      return false;
+    }
+    const prev = i > 1 ? step(tabs, i - 1) : null;
+    const current = step(tabs, i);
+    const next = i >= size ? null : step(tabs, i + 1);
+    const checkPrevNext = prev === null ? true : prev.next === current;
+    const checkCurrentPrev = current.prev === prev;
+    const checkNextPrev = next === null ? true : next.prev === current;
+    const checkCurrentNext = current.next === next;
+    if (
+      !(
+        checkPrevNext &&
+        checkCurrentPrev &&
+        checkNextPrev &&
+        checkCurrentNext
+      ) === true
+    ) {
+      console.log('checkCurrentPrev', checkCurrentPrev);
+      console.log('checkCurrentPrev', checkCurrentPrev);
+      console.log('checkNextPrev', checkNextPrev);
+      console.log('checkCurrentNext', checkCurrentNext);
+      console.error('current index is', i);
+      return false;
+    }
+  }
+  return true;
+};
 
 describe('model/tabs', () => {
   describe('addTab', () => {
@@ -308,10 +359,8 @@ describe('model/tabs', () => {
       tabs.addTab(tab2);
       tabs.swapTab(tab, tab2);
 
-      expect(tabs.head.prev).toEqual(null);
-      expect(tabs.tail.next).toEqual(null);
-
       expect(mapData(tabs)).toEqual([2, 1]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapHeadTail;
@@ -322,9 +371,9 @@ describe('model/tabs', () => {
       const tab2 = new Tab({ data: 2 });
       tabs.addTab(tab2);
       tabs.swapTab(tab2, tab);
-      expect(tabs.head.prev).toEqual(null);
-      expect(tabs.tail.next).toEqual(null);
+
       expect(mapData(tabs)).toEqual([2, 1]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapHeadTail
@@ -337,7 +386,9 @@ describe('model/tabs', () => {
       const tab3 = new Tab({ data: 3 });
       tabs.addTab(tab3);
       tabs.swapTab(tab, tab3);
+
       expect(mapData(tabs)).toEqual([3, 2, 1]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapHeadTail
@@ -350,7 +401,9 @@ describe('model/tabs', () => {
       const tab3 = new Tab({ data: 3 });
       tabs.addTab(tab3);
       tabs.swapTab(tab3, tab);
+
       expect(mapData(tabs)).toEqual([3, 2, 1]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapWithHead
@@ -367,8 +420,9 @@ describe('model/tabs', () => {
       const tab5 = new Tab({ data: 5 });
       tabs.addTab(tab5);
       tabs.swapTab(tab2, tab);
+
       expect(mapData(tabs)).toEqual([2, 1, 3, 4, 5]);
-      expect(tabs.head.prev).toBeNull();
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     it('swap 1 to 3, order should be 3,2,1,4,5', () => {
@@ -384,8 +438,27 @@ describe('model/tabs', () => {
       const tab5 = new Tab({ data: 5 });
       tabs.addTab(tab5);
       tabs.swapTab(tab3, tab);
+
       expect(mapData(tabs)).toEqual([3, 2, 1, 4, 5]);
-      expect(tabs.head.prev).toBeNull();
+      expect(stepCheck(tabs)).toEqual(true);
+    });
+
+    it('swap 1 to 4, order should be 4,2,3,1,5', () => {
+      const tabs = new Tabs();
+      const tab = new Tab({ data: 1 });
+      tabs.addTab(tab);
+      const tab2 = new Tab({ data: 2 });
+      tabs.addTab(tab2);
+      const tab3 = new Tab({ data: 3 });
+      tabs.addTab(tab3);
+      const tab4 = new Tab({ data: 4 });
+      tabs.addTab(tab4);
+      const tab5 = new Tab({ data: 5 });
+      tabs.addTab(tab5);
+      tabs.swapTab(tab4, tab);
+
+      expect(mapData(tabs)).toEqual([4, 2, 3, 1, 5]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapWithTail
@@ -402,8 +475,9 @@ describe('model/tabs', () => {
       const tab5 = new Tab({ data: 5 });
       tabs.addTab(tab5);
       tabs.swapTab(tab5, tab4);
+
       expect(mapData(tabs)).toEqual([1, 2, 3, 5, 4]);
-      expect(tabs.tail.next).toBeNull();
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapWithTail
@@ -420,7 +494,9 @@ describe('model/tabs', () => {
       const tab5 = new Tab({ data: 5 });
       tabs.addTab(tab5);
       tabs.swapTab(tab3, tab5);
+
       expect(mapData(tabs)).toEqual([1, 2, 5, 4, 3]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapBetween near
@@ -437,7 +513,9 @@ describe('model/tabs', () => {
       const tab5 = new Tab({ data: 5 });
       tabs.addTab(tab5);
       tabs.swapTab(tab2, tab3);
+
       expect(mapData(tabs)).toEqual([1, 3, 2, 4, 5]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapBetween near
@@ -454,7 +532,9 @@ describe('model/tabs', () => {
       const tab5 = new Tab({ data: 5 });
       tabs.addTab(tab5);
       tabs.swapTab(tab3, tab2);
+
       expect(mapData(tabs)).toEqual([1, 3, 2, 4, 5]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapBetween
@@ -471,7 +551,9 @@ describe('model/tabs', () => {
       const tab5 = new Tab({ data: 5 });
       tabs.addTab(tab5);
       tabs.swapTab(tab2, tab4);
+
       expect(mapData(tabs)).toEqual([1, 4, 3, 2, 5]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
 
     // swapBetween
@@ -488,7 +570,9 @@ describe('model/tabs', () => {
       const tab5 = new Tab({ data: 5 });
       tabs.addTab(tab5);
       tabs.swapTab(tab4, tab2);
+
       expect(mapData(tabs)).toEqual([1, 4, 3, 2, 5]);
+      expect(stepCheck(tabs)).toEqual(true);
     });
   });
 

@@ -4,11 +4,11 @@ import TabsAction from '../actions/tabs';
 
 const tabs = new Tabs();
 
-tabs.addTab(new Tab({ data: { name: 'Tabs.md' } }));
-tabs.addTab(new Tab({ data: { name: 'README.md' } }));
-tabs.addTab(new Tab({ data: { name: 'Javascript in Action.md' } }));
-tabs.addTab(new Tab({ data: { name: 'Flutter App introduction.md' } }));
-tabs.addTab(new Tab({ data: { name: '21天精通c++.md' } }));
+tabs.addTab(new Tab({ data: { name: 'AAAA.md' } }));
+tabs.addTab(new Tab({ data: { name: 'BBBB.md' } }));
+tabs.addTab(new Tab({ data: { name: 'CCCC.md' } }));
+tabs.addTab(new Tab({ data: { name: 'DDDD.md' } }));
+tabs.addTab(new Tab({ data: { name: 'EEEE.md' } }));
 
 export const initState = function() {
   return {
