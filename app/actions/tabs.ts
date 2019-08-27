@@ -1,4 +1,5 @@
 enum TABS {
+  ADD_NEW_TAB = 'ADD_NEW_TAB', // add a new tab to the tabs
   CLOSE_TAB = 'TAB_CLOSE_TAB', // close one tab
   CLOSE_ALL_TABS = 'TAB_CLOSE_ALL_TABS', // close all tab
   CLOSE_LEFT_TABS = 'TAB_CLOSE_LEFT_TABS', // close tabs on the left side of tab
