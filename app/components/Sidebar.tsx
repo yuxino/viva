@@ -7,6 +7,11 @@ import { FilePdf } from 'styled-icons/icomoon/FilePdf';
 import { Settings } from 'styled-icons/feather/Settings';
 import { Fullscreen } from 'styled-icons/boxicons-regular/Fullscreen';
 
+interface MenusType {
+  title: string;
+  icon: React.ElementType;
+}
+
 const Container = styled.div`
   border-right: 1px solid #eae9e7;
   padding: 20px 8px;
@@ -36,35 +41,55 @@ const IconGroupItem = styled.li`
   }
 `;
 
-function Sidebar() {
+const TopMenus: MenusType[] = [
+  {
+    title: 'Explorer',
+    icon: FileBlank
+  },
+  {
+    title: 'Source Control',
+    icon: GitBranch
+  },
+  {
+    title: 'Search',
+    icon: Search
+  },
+  {
+    title: 'Full Screen',
+    icon: Fullscreen
+  },
+  {
+    title: 'Export To PDF',
+    icon: FilePdf
+  }
+];
+
+const ButtonMenus: MenusType[] = [
+  {
+    title: 'User Settings',
+    icon: Settings
+  }
+];
+
+const GenMenus = ({ menus }: { menus: MenusType[] }) => (
+  <IconGroup>
+    {menus.map(menu => (
+      <IconGroupItem key={menu.title} title={menu.title}>
+        <menu.icon size={20} color="#8c8c8c" />
+      </IconGroupItem>
+    ))}
+  </IconGroup>
+);
+
+const Sidebar = () => {
   return (
     <Container>
       {/* Top Menu */}
-      <IconGroup>
-        <IconGroupItem title="Explorer">
-          <FileBlank size={20} color="#8c8c8c" />
-        </IconGroupItem>
-        <IconGroupItem title="Source Control">
-          <GitBranch size={20} color="#8c8c8c" />
-        </IconGroupItem>
-        <IconGroupItem title="Search">
-          <Search size={20} color="#8c8c8c" />
-        </IconGroupItem>
-        <IconGroupItem title="Full Screen">
-          <Fullscreen size={20} color="#8c8c8c" />
-        </IconGroupItem>
-        <IconGroupItem title="Export To Pdf">
-          <FilePdf size={20} color="#8c8c8c" />
-        </IconGroupItem>
-      </IconGroup>
+      <GenMenus menus={TopMenus} />
       {/* Bottom Menu */}
-      <IconGroup>
-        <IconGroupItem title="User Settings">
-          <Settings size={20} color="#8c8c8c" />
-        </IconGroupItem>
-      </IconGroup>
+      <GenMenus menus={ButtonMenus} />
     </Container>
   );
-}
+};
 
 export default Sidebar;
