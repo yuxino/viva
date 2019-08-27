@@ -1,5 +1,6 @@
 import { takeEvery, put, select } from 'redux-saga/effects';
 import TitleBarActions from '../actions/titlebar';
+import TabsActions from '../actions/tabs';
 import ViewActions from '../actions/view';
 
 // worker Saga: will be fired on USER_FETCH_REQUESTED actions
@@ -15,6 +16,12 @@ function* tabs_update(action) {
   yield put({
     type: TitleBarActions.UPDATE_TITLE,
     payload: { title: name }
+  });
+
+  // add new tab to tabs
+  yield put({
+    type: TabsActions.ADD_NEW_TAB,
+    payload: { name }
   });
 }
 
