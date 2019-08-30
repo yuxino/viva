@@ -93,9 +93,9 @@ function App() {
                 />
               </Layout.Left>
               <Layout.Right>
-                <MdPreview 
+                <MdPreview
                   content={content}
-                  ref={previewRef} 
+                  ref={previewRef}
                   onScroll={scrollHanlder}/>
               </Layout.Right>
             </Layout.Container>
