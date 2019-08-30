@@ -1,4 +1,5 @@
 // describe the Tab
+// need a key to ensure is same one
 export default class Tab {
   private _saved = true;
   public _prev = null;
