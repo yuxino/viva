@@ -19,9 +19,9 @@ const Tabs = function() {
   const updateTabsOrder = payload =>
     dispath({ type: TabsAction.UPDATE_TAB_ORDER, payload });
 
-  const { tabs, isEmpty } = useMappedState(state => ({
-    tabs: state.tabs.tabs,
-    isEmpty: state.tabs.isEmpty
+  const { tabs, isEmpty } = useMappedState(({ Tabs }) => ({
+    tabs: Tabs.tabs,
+    isEmpty: Tabs.isEmpty
   }));
 
   return (
