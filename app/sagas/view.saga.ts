@@ -6,8 +6,8 @@ import ViewActions from '../actions/View';
 // worker Saga: will be fired on USER_FETCH_REQUESTED actions
 function* tabs_update(action) {
   const { name, content } = action.payload.fileInfo;
-  const state = yield select();
-  const { edtiorSyncFn } = state.view;
+  const { View } = yield select();
+  const { edtiorSyncFn } = View;
 
   // update editor and preview
   edtiorSyncFn(content);
@@ -22,8 +22,8 @@ function* tabs_update(action) {
 // CLOSE_TAB
 function* close_tab(action) {
   const { tab } = action.payload;
-  const state = yield select();
-  const { edtiorSyncFn } = state.view;
+  const { View } = yield select();
+  const { edtiorSyncFn } = View;
 
   // update editor and preview
   edtiorSyncFn('');

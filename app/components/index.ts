@@ -5,7 +5,7 @@ import Sidebar from './Sidebar';
 import TitleBar from './TitleBar';
 import VivaTitleBar from './VivaTitleBar';
 import Tabs from './Tabs';
-import WorkBench from './WorkBench';
+import WorkBench from './Workbench';
 
 export {
   Layout,
