@@ -20,6 +20,7 @@ const MdPreview = React.forwardRef(
   ({ onScroll, content: html }: Props, ref: React.Ref<HTMLDivElement>) => {
     return (
       <Preview
+        id="preview"
         ref={ref}
         onScroll={onScroll}
         className="markdown-body"
