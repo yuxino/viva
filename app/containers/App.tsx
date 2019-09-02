@@ -5,11 +5,12 @@ import {
   MdEditor,
   MdPreview,
   VivaTitleBar,
-  Tabs
+  Tabs,
+  WorkBench
   // WorkBench
 } from '../components';
 import { useDispatch } from 'redux-react-hook';
-import ViewActions from '../actions/view';
+import ViewActions from '../actions/View';
 import FileDrop from '../dnd/FileDrop';
 import H5DnD from '../dnd/h5DnD';
 
@@ -61,8 +62,7 @@ function App() {
     const t2 = t1 === editor ? preview : editor;
 
     setTimeout(() => {
-      const percentage =
-        t1.scrollTop / (t1.scrollHeight - t1.offsetHeight);
+      const percentage = t1.scrollTop / (t1.scrollHeight - t1.offsetHeight);
       const height = percentage * (t2.scrollHeight - t2.offsetHeight);
       t2.scrollTop = height;
     }, 0);
@@ -81,6 +81,7 @@ function App() {
         </Layout.Header>
         <Layout.Container>
           <Layout.Sidebar />
+          <WorkBench>213</WorkBench>
           <Layout.View>
             <Tabs />
             <Layout.Container>
@@ -96,7 +97,8 @@ function App() {
                 <MdPreview
                   content={content}
                   ref={previewRef}
-                  onScroll={scrollHanlder}/>
+                  onScroll={scrollHanlder}
+                />
               </Layout.Right>
             </Layout.Container>
           </Layout.View>

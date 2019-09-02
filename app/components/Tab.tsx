@@ -3,7 +3,7 @@ import styled from 'styled-components';
 import { useDispatch } from 'redux-react-hook';
 import { Close } from 'styled-icons/evil/Close';
 import { vhc } from '../styled/extend';
-import ViewActions from '../actions/view';
+import ViewActions from '../actions/View';
 
 const TabStyled = styled.div`
   ${vhc};

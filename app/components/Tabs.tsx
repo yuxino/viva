@@ -1,7 +1,7 @@
 import * as React from 'react';
 import styled from 'styled-components';
 import { useMappedState, useDispatch } from 'redux-react-hook';
-import TabsAction from '../actions/tabs';
+import TabsAction from '../actions/Tabs';
 import { Dropable, Dragable } from '../dnd/Tab';
 import Tab from './Tab';
 

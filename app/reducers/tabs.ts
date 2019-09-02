@@ -1,6 +1,6 @@
 import Tabs from '../model/Tabs';
 import Tab from '../model/Tab';
-import TabsAction from '../actions/tabs';
+import TabsAction from '../actions/Tabs';
 
 const tabs = new Tabs();
 

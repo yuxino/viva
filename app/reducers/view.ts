@@ -1,5 +1,5 @@
 import produce from 'immer';
-import ViewActions from '../actions/view';
+import ViewActions from '../actions/View';
 
 export const initState = function() {
   return {
