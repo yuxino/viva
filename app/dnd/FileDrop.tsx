@@ -5,7 +5,7 @@ import { NativeTypes } from 'react-dnd-html5-backend';
 import { readFile } from 'fs-extra';
 import styled from 'styled-components';
 import { store } from '../store/configureStore';
-import ViewActions from '../actions/view';
+import ViewActions from '../actions/View';
 
 export interface DragTargetProps {
   isOver: boolean;

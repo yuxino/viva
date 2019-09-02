@@ -1,5 +1,5 @@
 import produce from 'immer';
-import WorkBenchActions from '../actions/workbench';
+import WorkBenchActions from '../actions/Workbench';
 
 export const initState = function() {
   return {

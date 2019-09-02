@@ -1,8 +1,8 @@
 import { all } from 'redux-saga/effects';
-import viewSaga from './view.saga';
+import ViewSaga from './View.saga';
 
 function* watchAll() {
-  yield all([...viewSaga]);
+  yield all([...ViewSaga]);
 }
 
 export default watchAll;

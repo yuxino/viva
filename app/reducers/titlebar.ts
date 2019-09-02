@@ -1,5 +1,5 @@
 import produce from 'immer';
-import TitleBarActions from '../actions/titlebar';
+import TitleBarActions from '../actions/Titlebar';
 
 export const initState = function() {
   return {
