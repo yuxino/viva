@@ -19,8 +19,8 @@ export default function() {
     ipcRenderer.send('close');
   };
 
-  const { title } = useMappedState(state => ({
-    title: state.titlebar.title
+  const { title } = useMappedState(({ Titlebar }) => ({
+    title: Titlebar.title
   }));
 
   return (
