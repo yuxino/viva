@@ -53,6 +53,12 @@
       "git add"
     ]
   },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "commit-msg": "commitlint -E HUSKY_GIT_PARAMS"
+    }
+  },
   "main": "./app/main.prod.js",
   "build": {
     "productName": "ElectronReact",
@@ -185,6 +191,8 @@
     "@babel/preset-react": "^7.0.0",
     "@babel/preset-typescript": "^7.1.0",
     "@babel/register": "^7.0.0",
+    "@commitlint/cli": "^8.1.0",
+    "@commitlint/config-conventional": "^8.1.0",
     "@types/jest": "^23.3.11",
     "@types/react": "^16.7.18",
     "@types/react-dom": "^16.0.11",
