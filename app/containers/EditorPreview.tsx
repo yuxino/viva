@@ -1,13 +1,23 @@
 import * as React from 'react';
+import styled from 'styled-components';
 import { useRef, useState, useEffect } from 'react';
-import { useDispatch } from 'redux-react-hook';
+import { useMappedState, useDispatch } from 'redux-react-hook';
 import { Layout, MdEditor, MdPreview } from '../components';
 import ViewActions from '../actions/View';
+import { flexVisiable, VisableProps } from '../styled/mixin';
+
+const Container = styled(Layout.Container)<VisableProps>`
+  ${props => flexVisiable(props)};
+`;
 
 export default function() {
   const dispath = useDispatch();
   const updateEditorSyncFn = payload =>
     dispath({ type: ViewActions.UPDATE_EDITOR_SYNC_FN, payload });
+
+  const { isEmpty } = useMappedState(({ Tabs }) => ({
+    isEmpty: Tabs.isEmpty
+  }));
 
   const [content, setContent] = useState('');
 
@@ -47,7 +57,7 @@ export default function() {
   }, [editorRef]);
 
   return (
-    <Layout.Container>
+    <Container show={!isEmpty}>
       <Layout.Left>
         <MdEditor
           ref={editorRef}
@@ -63,6 +73,6 @@ export default function() {
           onScroll={scrollHanlder}
         />
       </Layout.Right>
-    </Layout.Container>
+    </Container>
   );
 }
