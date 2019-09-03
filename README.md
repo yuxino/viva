@@ -4,7 +4,7 @@ A personal markdown editor
 
 Welcome Page 
 
-![image](https://user-images.githubusercontent.com/12481935/59974260-a5e36e00-95dc-11e9-80e8-4b5836921852.png)
+![image](https://user-images.githubusercontent.com/12481935/64145739-9ee2a280-ce4c-11e9-92c3-aeacd8105b84.png)
 
 Edit Markdown 
 
