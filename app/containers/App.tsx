@@ -1,18 +1,19 @@
 import * as React from 'react';
-import { Layout, VivaTitleBar, Tabs, WorkBench } from '../components';
+import { Layout, Tabs, WorkBench } from '../components';
 import FileDrop from '../dnd/FileDrop';
 import H5DnD from '../dnd/h5DnD';
 import EditorPreview from './EditorPreview';
+import Header from './Header';
+import Bootstrap from './Bootstrap';
 
 /**
  * APP Layout ⤵️
  *
  * FileDrop
- * |> titlebar
- * |> sidebar
- *     |> workbench
-       |> bottomIconGroup
- * |>  main
+ * |> Header
+ * |> Sidebar
+ * |> Workbench
+ * |> Main
  *     |> tabs
  *     |> EditorPreview | Bootstrap
  */
@@ -21,15 +22,14 @@ function App() {
   return (
     <FileDrop>
       <Layout>
-        <Layout.Header>
-          <VivaTitleBar />
-        </Layout.Header>
+        <Header />
         <Layout.Container>
           <Layout.Sidebar />
-          <WorkBench>213</WorkBench>
+          <WorkBench />
           <Layout.View>
             <Tabs />
             <EditorPreview />
+            <Bootstrap />
           </Layout.View>
         </Layout.Container>
       </Layout>
