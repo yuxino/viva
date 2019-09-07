@@ -5,6 +5,7 @@ import { AppContainer } from 'react-hot-loader';
 import { store } from './store/configureStore';
 import App from './containers/App';
 import './styles/index.scss';
+import '@viva-ui/theme/dist/index.css';
 
 render(
   <AppContainer>

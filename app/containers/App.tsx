@@ -5,6 +5,7 @@ import H5DnD from '../dnd/h5DnD';
 import EditorPreview from './EditorPreview';
 import Header from './Header';
 import Bootstrap from './Bootstrap';
+import { Dialog } from '@viva-ui/ui';
 
 /**
  * APP Layout ⤵️
@@ -32,6 +33,7 @@ function App() {
             <Bootstrap />
           </Layout.View>
         </Layout.Container>
+        <Dialog title="viva editor" />
       </Layout>
     </FileDrop>
   );
