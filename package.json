@@ -270,6 +270,8 @@
   "dependencies": {
     "@types/fs-extra": "^7.0.0",
     "@types/styled-components": "^4.1.15",
+    "@viva-ui/theme": "^1.0.1",
+    "@viva-ui/ui": "^1.0.6",
     "core-js": "3",
     "devtron": "^1.4.0",
     "electron-debug": "^2.0.0",
