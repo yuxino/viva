@@ -46,6 +46,9 @@ const GenMenus = ({ menus, showWorkBench }: GenMenusProps) => {
     return () => {
       if (currentMenuSymbol === symbol) {
         showWorkBench && dispatch({ type: WorkBenchActions.TOGGLE_WORKBENCH });
+      } else if (currentMenuSymbol === null) {
+        currentMenuSymbol = symbol;
+        showWorkBench && dispatch({ type: WorkBenchActions.TOGGLE_WORKBENCH });
       } else {
         currentMenuSymbol = symbol;
       }
