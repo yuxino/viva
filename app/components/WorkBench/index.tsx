@@ -3,9 +3,7 @@ import styled from 'styled-components';
 import { useMappedState } from 'redux-react-hook';
 import { blockVisiable, VisableProps } from '../../styled/mixin';
 
-interface WorkbenchProps {
-  children?: React.ReactChild;
-}
+import { Explorer } from './modules';
 
 const Container = styled.div<VisableProps>`
   width: 200px;
@@ -19,7 +17,15 @@ const TitleBar = styled.div`
   text-transform: uppercase;
 `;
 
-function WorkBench({ children }: WorkbenchProps) {
+const WorkBenchMap = {
+  Explorer: <Explorer />,
+  'Export To PDF': 'Export To PDF',
+  'Full Screen': 'Full Screen',
+  Search: 'Search',
+  'Source Control': 'Source Control'
+};
+
+function WorkBench() {
   const { visible, title } = useMappedState(({ Workbench: Wb }) => ({
     visible: Wb.visible,
     title: Wb.title
@@ -28,7 +34,7 @@ function WorkBench({ children }: WorkbenchProps) {
   return (
     <Container show={visible}>
       <TitleBar>{title}</TitleBar>
-      {children}
+      {WorkBenchMap[title]}
     </Container>
   );
 }

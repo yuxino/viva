@@ -3,7 +3,7 @@ import WorkBenchActions from '../actions/Workbench';
 
 export const initState = function() {
   return {
-    title: 'hahaha好',
+    title: '',
     visible: false
   };
 };
