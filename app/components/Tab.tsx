@@ -38,7 +38,6 @@ const Tab = function(props) {
     >
       {item.data.name}
       <CloseIcon size="15" onClick={closeTab} />
-      {/* <Fullscreen>X</Fullscreen> */}
     </TabStyled>
   );
 };

@@ -15,6 +15,7 @@ const Desc = styled.p`
 `;
 
 export default {
+  symbol: Symbol('User Settings'),
   title: 'User Settings',
   icon: Settings,
   onClick: () => {

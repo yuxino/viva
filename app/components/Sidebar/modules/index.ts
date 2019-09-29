@@ -9,6 +9,7 @@ export interface MenusType {
   title: string;
   icon: React.ElementType;
   onClick?: (event) => void;
+  symbol: Symbol;
 }
 
 const TopMenus: MenusType[] = [
