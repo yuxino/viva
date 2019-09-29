@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useState } from 'react';
 import styled from 'styled-components';
 import { TopMenus, ButtonMenus, MenusType } from './modules';
 import { useDispatch } from 'redux-react-hook';
@@ -39,34 +40,54 @@ interface GenMenusProps {
 }
 
 const GenMenus = ({ menus, showWorkBench }: GenMenusProps) => {
+  const [currentMenuSymbol, setCurrentMenuSymbol] = useState<Symbol>(null);
   const dispatch = useDispatch();
-  let currentMenuSymbol = null;
 
-  const beforeClick = (cb, symbol) => {
+  const beforeClick = ({ cb, symbol, title }) => {
     return () => {
-      if (currentMenuSymbol === symbol) {
-        showWorkBench && dispatch({ type: WorkBenchActions.TOGGLE_WORKBENCH });
-      } else if (currentMenuSymbol === null) {
-        currentMenuSymbol = symbol;
-        showWorkBench && dispatch({ type: WorkBenchActions.TOGGLE_WORKBENCH });
-      } else {
-        currentMenuSymbol = symbol;
+      if (showWorkBench) {
+        if (currentMenuSymbol === symbol) {
+          dispatch({
+            type: WorkBenchActions.TOGGLE_WORKBENCH,
+            payload: {
+              title
+            }
+          });
+        } else {
+          dispatch({
+            type: WorkBenchActions.OPEN_WORKBENCH,
+            payload: {
+              title
+            }
+          });
+        }
+        setCurrentMenuSymbol(symbol);
+        typeof cb === 'function' && cb();
       }
-      typeof cb === 'function' && cb();
     };
   };
 
   return (
     <IconGroup>
-      {menus.map(menu => (
-        <IconGroupItem
-          onClick={beforeClick(menu.onClick, Symbol('menu'))}
-          key={menu.title}
-          title={menu.title}
-        >
-          <menu.icon size={20} color="#8c8c8c" />
-        </IconGroupItem>
-      ))}
+      {menus.map(menu => {
+        const { onClick, symbol, title } = menu;
+        return (
+          <IconGroupItem
+            onClick={beforeClick({
+              cb: onClick,
+              symbol: symbol,
+              title: title
+            })}
+            key={symbol.toString()}
+            title={title}
+          >
+            <menu.icon
+              size={20}
+              color={symbol == currentMenuSymbol ? '#000000' : '#8c8c8c'}
+            />
+          </IconGroupItem>
+        );
+      })}
     </IconGroup>
   );
 };
