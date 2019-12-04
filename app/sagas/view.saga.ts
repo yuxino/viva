@@ -3,6 +3,7 @@ import TitleBarActions from '../actions/Titlebar';
 import TabsActions from '../actions/Tabs';
 import ViewActions from '../actions/View';
 import WorkbenchActions from '../actions/Workbench';
+import ExploreActions from '../actions/Explore';
 
 // worker Saga: will be fired on USER_FETCH_REQUESTED actions
 function* tabs_update(action) {
@@ -50,6 +51,11 @@ function* open_dir(action) {
   });
 
   // tell expore which dir been open
+
+  yield put({
+    type: ExploreActions.UPDATE_ROOT_PATH,
+    payload: { root: action.payload.fileInfo.path }
+  });
 }
 
 export default [
