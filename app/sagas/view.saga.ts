@@ -2,6 +2,7 @@ import { takeEvery, put, select } from 'redux-saga/effects';
 import TitleBarActions from '../actions/Titlebar';
 import TabsActions from '../actions/Tabs';
 import ViewActions from '../actions/View';
+import WorkbenchActions from '../actions/Workbench';
 
 // worker Saga: will be fired on USER_FETCH_REQUESTED actions
 function* tabs_update(action) {
@@ -32,7 +33,27 @@ function* close_tab(action) {
   yield put({ type: TabsActions.CLOSE_TAB, payload: { tab } });
 }
 
+// OPEN_DIR
+function* open_dir(action) {
+  // drop a directory in view
+
+  // update editor title
+  yield put({
+    type: TitleBarActions.UPDATE_TITLE,
+    payload: { title: action.payload.fileInfo.path }
+  });
+
+  // open explore
+  yield put({
+    type: WorkbenchActions.OPEN_WORKBENCH,
+    payload: { title: 'Explorer' }
+  });
+
+  // tell expore which dir been open
+}
+
 export default [
   takeEvery(ViewActions.TABS_UPDATE, tabs_update),
-  takeEvery(ViewActions.CLEAR_EDITOR_CONTENT, close_tab)
+  takeEvery(ViewActions.CLEAR_EDITOR_CONTENT, close_tab),
+  takeEvery(ViewActions.OPEN_DIR, open_dir)
 ];
