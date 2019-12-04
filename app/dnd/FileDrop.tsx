@@ -2,7 +2,7 @@ import * as React from 'react';
 import { ConnectDropTarget, DropTargetMonitor } from 'react-dnd';
 import { DropTarget, DropTargetConnector } from 'react-dnd';
 import { NativeTypes } from 'react-dnd-html5-backend';
-import { readFile } from 'fs-extra';
+import { readFile, lstatSync, readdir } from 'fs-extra';
 import styled from 'styled-components';
 import { store } from '../store/configureStore';
 import ViewActions from '../actions/View';
@@ -43,15 +43,26 @@ export default DropTarget(
         // single file ...
         const file = files[0];
         const path = file.path;
-        const buffer = await readFile(path);
-        const content = buffer.toString();
-        const fileInfo = { content, name: file.name };
 
-        // update tabs view
-        store.dispatch({
-          type: ViewActions.TABS_UPDATE,
-          payload: { fileInfo }
-        });
+        // content handler
+        if (lstatSync(path).isFile()) {
+          const buffer = await readFile(path);
+          const content = buffer.toString();
+          const fileInfo = { content, name: file.name };
+          // update tabs view
+          store.dispatch({
+            type: ViewActions.TABS_UPDATE,
+            payload: { fileInfo }
+          });
+        } else {
+          // console.log(path);
+          // const dirs = await readdir(path);
+          const fileInfo = { path: path };
+          store.dispatch({
+            type: ViewActions.OPEN_DIR,
+            payload: { fileInfo }
+          });
+        }
       })();
     }
   },

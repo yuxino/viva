@@ -7,7 +7,8 @@ enum View {
   CLEAR_EDITOR_CONTENT = 'VIEW_CLEAR_EDITOR_CONTENT', // clear editor content
   // FOR SAGA
   TABS_UPDATE = 'VIEW_TABS_UPDATE', // update tabs view (SIDE_EFFECT)
-  CLOSE_TAB = 'VIEW_CLOSE_TAB' // when close a tab
+  CLOSE_TAB = 'VIEW_CLOSE_TAB', // when close a tab
+  OPEN_DIR = 'OPEN_DIR' // when dir been drop to editor
 }
 
 export default View;
