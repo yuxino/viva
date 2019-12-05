@@ -39,7 +39,6 @@ export default DropTarget(
     drop(props: DragTargetProps, monitor: DropTargetMonitor) {
       (async () => {
         const files = monitor.getItem().files;
-
         // single file ...
         const file = files[0];
         const path = file.path;
