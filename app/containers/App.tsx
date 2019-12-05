@@ -7,6 +7,10 @@ import Header from './Header';
 import Bootstrap from './Bootstrap';
 import { Dialog } from '@viva-ui/ui';
 
+// TODO: 待删除
+import { store } from '../store/configureStore';
+import ViewActions from '../actions/View';
+
 /**
  * APP Layout ⤵️
  *
@@ -20,6 +24,12 @@ import { Dialog } from '@viva-ui/ui';
  */
 
 function App() {
+  // TODO: 待删除
+  const fileInfo = { path: '/Users/gavin/Desktop/测试文件' };
+  store.dispatch({
+    type: ViewActions.OPEN_DIR,
+    payload: { fileInfo }
+  });
   return (
     <FileDrop>
       <Layout>
