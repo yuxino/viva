@@ -1,1 +1,1 @@
-// alert("123");
+import "./app";

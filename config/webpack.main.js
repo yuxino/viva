@@ -5,6 +5,7 @@ module.exports = {
   mode: "development",
   entry: `./src/main.ts`,
   target: "electron-main",
+  devtool: "source-map",
   output: {
     path: path.resolve(__dirname, "../dist"),
     filename: "main.js",
