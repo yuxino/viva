@@ -8,7 +8,6 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, "../dist"),
     filename: "renderer.js",
-    // publicPath: "./",
   },
   stats: "none",
   devServer: {
@@ -16,7 +15,6 @@ module.exports = {
     quiet: true,
     port: 8080,
     hot: true,
-    // contentBase: path.join(__dirname, 'src'),
     watchContentBase: true,
   },
   module: {
