@@ -1,0 +1,8 @@
+{
+  "name": "viva",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "git@github.com:Nbsaw/viva.git",
+  "author": "yuxino <nbsawz@gmail.com>",
+  "license": "MIT"
+}
