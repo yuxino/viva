@@ -1,8 +1,8 @@
 import * as React from 'react';
 import styled from 'styled-components';
-import { Settings } from 'styled-icons/feather/Settings';
+import { Settings } from '@styled-icons/feather/Settings';
 import { openDialog } from '@viva-ui/ui';
-import { ScGithub } from 'styled-icons/evil/ScGithub';
+import { ScGithub } from '@styled-icons/evil/ScGithub';
 
 const Contaienr = styled.div`
   padding: 25px;
@@ -32,5 +32,5 @@ export default {
     );
 
     openDialog(body);
-  }
+  },
 };

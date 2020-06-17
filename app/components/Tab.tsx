@@ -1,7 +1,7 @@
 import * as React from 'react';
 import styled from 'styled-components';
 import { useDispatch } from 'redux-react-hook';
-import { Close } from 'styled-icons/evil/Close';
+import { Close } from '@styled-icons/evil/Close';
 import { vhc } from '../styled/extend';
 import ViewActions from '../actions/View';
 
@@ -18,7 +18,7 @@ const CloseIcon = styled(Close)`
   margin-left: 5px;
 `;
 
-const Tab = function(props) {
+const Tab = function (props) {
   const { item } = props;
   const { isDragging, connectDragSource } = props;
   const { isOver, connectDropTarget } = props;
@@ -28,12 +28,12 @@ const Tab = function(props) {
 
   return (
     <TabStyled
-      ref={instance => {
+      ref={(instance) => {
         connectDragSource(instance);
         connectDropTarget(instance);
       }}
       style={{
-        backgroundColor: (isDragging && 'orange') || (isOver && 'pink')
+        backgroundColor: (isDragging && 'orange') || (isOver && 'pink'),
       }}
     >
       {item.data.name}

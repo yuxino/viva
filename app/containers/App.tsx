@@ -23,13 +23,14 @@ import ViewActions from '../actions/View';
  *     |> EditorPreview | Bootstrap
  */
 
-function App() {
+export default function App() {
   // TODO: 待删除
   const fileInfo = { path: '/Users/gavin/Desktop/测试文件' };
   store.dispatch({
     type: ViewActions.OPEN_DIR,
-    payload: { fileInfo }
+    payload: { fileInfo },
   });
+
   return (
     <FileDrop>
       <Layout>
@@ -49,4 +50,4 @@ function App() {
   );
 }
 
-export default H5DnD(App);
+// export default () => <App />;

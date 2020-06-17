@@ -34,7 +34,7 @@ if (
   process.env.DEBUG_PROD === 'true'
 ) {
   require('electron-debug')({
-    showDevTools: false
+    showDevTools: false,
   });
 }
 
@@ -44,7 +44,7 @@ const installExtensions = async () => {
   const extensions = ['REACT_DEVELOPER_TOOLS', 'REDUX_DEVTOOLS'];
 
   return Promise.all(
-    extensions.map(name => installer.default(installer[name], forceDownload))
+    extensions.map((name) => installer.default(installer[name], forceDownload))
   ).catch(console.log);
 };
 
@@ -65,7 +65,8 @@ app.on('ready', async () => {
     process.env.NODE_ENV === 'development' ||
     process.env.DEBUG_PROD === 'true'
   ) {
-    await installExtensions();
+    // TODO: 调试插件有问题
+    // await installExtensions();
   }
 
   mainWindow = new BrowserWindow({
@@ -76,8 +77,8 @@ app.on('ready', async () => {
     maximizable: false,
     frame: false,
     webPreferences: {
-      nodeIntegration: true
-    }
+      nodeIntegration: true,
+    },
   });
 
   mainWindow.loadURL(`file://${__dirname}/app.html`);
@@ -97,11 +98,11 @@ app.on('ready', async () => {
     }
   });
 
-  mainWindow.on('close', function() {
+  mainWindow.on('close', function () {
     app.exit();
   });
 
-  ipcMain.on('close', function() {
+  ipcMain.on('close', function () {
     app.exit();
   });
 
