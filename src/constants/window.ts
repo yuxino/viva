@@ -1,6 +1,9 @@
 const WINDOW_CONFIG = {
-  width: 800,
-  height: 600,
+  width: 1024,
+  height: 728,
+  resizable: false,
+  maximizable: false,
+  frame: false,
   webPreferences: {
     nodeIntegration: true,
   },

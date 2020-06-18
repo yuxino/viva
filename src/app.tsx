@@ -1,4 +1,14 @@
-import React from "react";
-import ReactDOM from "react-dom";
+import * as React from "react";
+import { render } from "react-dom";
+import { StoreContext } from "redux-react-hook";
+import { store } from "./store/configureStore";
+import App from "./containers/App";
+import "./styles/index.css";
+import "@viva-ui/theme/dist/index.css";
 
-ReactDOM.render(<div>I am so cute</div>, document.getElementById("app"));
+render(
+  <StoreContext.Provider value={store}>
+    <App />
+  </StoreContext.Provider>,
+  document.getElementById("app")
+);

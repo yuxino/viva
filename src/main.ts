@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from "electron";
+import { ipcMain } from "electron";
 import WINDOW_CONFIG from "./constants/window";
 
 function createWindow() {
@@ -7,6 +8,14 @@ function createWindow() {
 
   // 加载index.html文件
   win.loadURL("http://localhost:8080");
+
+  win.on("close", function () {
+    app.exit();
+  });
+
+  ipcMain.on("close", function () {
+    app.exit();
+  });
 }
 
 app.whenReady().then(createWindow);
