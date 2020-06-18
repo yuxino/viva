@@ -6,7 +6,7 @@ module.exports = {
   entry: `./src/renderer.ts`,
   target: "electron-renderer",
   output: {
-    path: path.resolve(__dirname, "../dist"),
+    path: path.resolve(__dirname, "../.tmp"),
     filename: "renderer.js",
   },
   stats: "none",

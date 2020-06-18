@@ -21,10 +21,10 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
-    "dev": "rm -rf dist && run-p dev-renderer dev-main",
+    "dev": "rm -rf .tmp && run-p dev-renderer dev-main",
     "dev-renderer": "webpack-dev-server --config ./config/webpack.renderer.js -w ",
     "dev-main": "webpack --config ./config/webpack.main.js -w ",
-    "start": "electron ./dist/main.js"
+    "start": "electron ./.tmp/main.js"
   },
   "dependencies": {
     "react": "^16.13.1",

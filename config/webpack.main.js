@@ -7,7 +7,7 @@ module.exports = {
   target: "electron-main",
   devtool: "source-map",
   output: {
-    path: path.resolve(__dirname, "../dist"),
+    path: path.resolve(__dirname, "../.tmp"),
     filename: "main.js",
     publicPath: "./",
   },
