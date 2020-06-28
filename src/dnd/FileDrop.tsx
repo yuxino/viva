@@ -1,11 +1,11 @@
-import * as React from 'react';
-import { ConnectDropTarget, DropTargetMonitor } from 'react-dnd';
-import { DropTarget, DropTargetConnector } from 'react-dnd';
-import { NativeTypes } from 'react-dnd-html5-backend';
-import { readFile, lstatSync, readdir } from 'fs-extra';
-import styled from 'styled-components';
-import { store } from '../store/configureStore';
-import ViewActions from '../actions/View';
+import * as React from "react";
+import { ConnectDropTarget, DropTargetMonitor } from "react-dnd";
+import { DropTarget, DropTargetConnector } from "react-dnd";
+import { NativeTypes } from "react-dnd-html5-backend";
+import { readFile, lstatSync } from "fs-extra";
+import styled from "styled-components";
+import { store } from "../store/configureStore";
+import ViewActions from "../actions/View";
 
 export interface DragTargetProps {
   isOver: boolean;
@@ -20,11 +20,11 @@ const Container = styled.div`
 
 const DragTarget: React.FC<DragTargetProps> = ({
   connectDropTarget,
-  children
+  children,
 }) => {
   return (
     <Container
-      ref={instance => {
+      ref={(instance) => {
         connectDropTarget(instance);
       }}
     >
@@ -51,7 +51,7 @@ export default DropTarget(
           // update tabs view
           store.dispatch({
             type: ViewActions.TABS_UPDATE,
-            payload: { fileInfo }
+            payload: { fileInfo },
           });
         } else {
           // console.log(path);
@@ -59,15 +59,15 @@ export default DropTarget(
           const fileInfo = { path: path };
           store.dispatch({
             type: ViewActions.OPEN_DIR,
-            payload: { fileInfo }
+            payload: { fileInfo },
           });
         }
       })();
-    }
+    },
   },
   (connect: DropTargetConnector, monitor: DropTargetMonitor) => ({
     connectDropTarget: connect.dropTarget(),
     isOver: monitor.isOver(),
-    canDrop: monitor.canDrop()
+    canDrop: monitor.canDrop(),
   })
 )(DragTarget);

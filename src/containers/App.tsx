@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Layout, Tabs, WorkBench } from "../components";
-import FileDrop from "../dnd/FileDrop";
-import H5DnD from "../dnd/h5DnD";
+// import FileDrop from "../dnd/FileDrop";
+// import H5DnD from "../dnd/h5DnD";
 import EditorPreview from "./EditorPreview";
 import Header from "./Header";
 import Bootstrap from "./Bootstrap";

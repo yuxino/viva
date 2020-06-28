@@ -1,5 +1,5 @@
-import { takeLatest, put, select } from 'redux-saga/effects';
-import WorkBenchActions from '../actions/Workbench';
+import { takeLatest, put, select } from "redux-saga/effects";
+import WorkBenchActions from "../actions/Workbench";
 
 // toggle workbench
 function* workbench_toggle(action) {
@@ -9,10 +9,10 @@ function* workbench_toggle(action) {
     type: visible
       ? WorkBenchActions.CLOSE_WORKBENCH
       : WorkBenchActions.OPEN_WORKBENCH,
-    payload: action.payload
+    payload: action.payload,
   });
 }
 
 export default [
-  takeLatest(WorkBenchActions.TOGGLE_WORKBENCH, workbench_toggle)
+  takeLatest(WorkBenchActions.TOGGLE_WORKBENCH, workbench_toggle),
 ];
