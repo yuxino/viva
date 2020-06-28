@@ -42,7 +42,7 @@ export default function App() {
           <Layout.Sidebar />
           <WorkBench />
           <Layout.View>
-            {/* <Tabs /> */}
+            <Tabs />
             <EditorPreview />
             <Bootstrap />
           </Layout.View>

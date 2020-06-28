@@ -1,9 +1,9 @@
-import { takeEvery, put, select } from 'redux-saga/effects';
-import TitleBarActions from '../actions/Titlebar';
-import TabsActions from '../actions/Tabs';
-import ViewActions from '../actions/View';
-import WorkbenchActions from '../actions/Workbench';
-import ExploreActions from '../actions/Explore';
+import { takeEvery, put, select } from "redux-saga/effects";
+import TitleBarActions from "../actions/Titlebar";
+import TabsActions from "../actions/Tabs";
+import ViewActions from "../actions/View";
+import WorkbenchActions from "../actions/Workbench";
+import ExploreActions from "../actions/Explore";
 
 // worker Saga: will be fired on USER_FETCH_REQUESTED actions
 function* tabs_update(action) {
@@ -28,7 +28,7 @@ function* close_tab(action) {
   const { edtiorSyncFn } = View;
 
   // update editor and preview
-  edtiorSyncFn('');
+  edtiorSyncFn("");
 
   // close target tab
   yield put({ type: TabsActions.CLOSE_TAB, payload: { tab } });
@@ -41,25 +41,25 @@ function* open_dir(action) {
   // update editor title
   yield put({
     type: TitleBarActions.UPDATE_TITLE,
-    payload: { title: action.payload.fileInfo.path }
+    payload: { title: action.payload.fileInfo.path },
   });
 
   // open explore
   yield put({
     type: WorkbenchActions.OPEN_WORKBENCH,
-    payload: { title: 'Explorer' }
+    payload: { title: "Explorer" },
   });
 
   // tell expore which dir been open
 
   yield put({
     type: ExploreActions.UPDATE_ROOT_PATH,
-    payload: { root: action.payload.fileInfo.path }
+    payload: { root: action.payload.fileInfo.path },
   });
 }
 
 export default [
   takeEvery(ViewActions.TABS_UPDATE, tabs_update),
   takeEvery(ViewActions.CLEAR_EDITOR_CONTENT, close_tab),
-  takeEvery(ViewActions.OPEN_DIR, open_dir)
+  takeEvery(ViewActions.OPEN_DIR, open_dir),
 ];
