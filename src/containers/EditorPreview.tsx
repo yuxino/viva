@@ -15,9 +15,13 @@ export default function () {
   const updateEditorSyncFn = (payload) =>
     dispath({ type: ViewActions.UPDATE_EDITOR_SYNC_FN, payload });
 
-  const { isEmpty } = useMappedState(({ Tabs }) => ({
-    isEmpty: Tabs.isEmpty,
-  }));
+  const { isEmpty, showUnsupportView } = useMappedState(({ Tabs, View }) => {
+    console.log(View);
+    return {
+      isEmpty: Tabs.isEmpty,
+      showUnsupportView: View.showUnsupportView,
+    };
+  });
 
   const [content, setContent] = useState("");
 
@@ -57,7 +61,7 @@ export default function () {
   }, [editorRef]);
 
   return (
-    <Container show={!isEmpty}>
+    <Container show={!isEmpty && !showUnsupportView}>
       <Layout.Left>
         <MdEditor
           ref={editorRef}

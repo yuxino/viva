@@ -1,9 +1,9 @@
-import { combineReducers } from 'redux';
-import Explore from './Explore';
-import Tabs from './Tabs';
-import Titlebar from './Titlebar';
-import View from './View';
-import Workbench from './WorkBench';
+import { combineReducers } from "redux";
+import Explore from "./Explore";
+import Tabs from "./Tabs";
+import Titlebar from "./Titlebar";
+import View from "./View";
+import Workbench from "./WorkBench";
 
 export default function createRootReducer() {
   return combineReducers({
@@ -11,6 +11,6 @@ export default function createRootReducer() {
     Tabs,
     Titlebar,
     View,
-    Workbench
+    Workbench,
   });
 }

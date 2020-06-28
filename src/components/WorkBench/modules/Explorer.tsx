@@ -10,15 +10,21 @@ function Explorer() {
   const { root } = useMappedState(({ Explore }) => ({ root: Explore.root }));
   if (root === "") return <div>'NOT THING'</div>;
   const updateView = async (path, name) => {
-    console.log(getFileType(path));
-    // console.log(await readFile(path));
-    // const buffer = await readFile(path);
-    // const content = buffer.toString();
-    // const fileInfo = { content, name };
-    // dispatch({
-    //   type: ViewActions.TABS_UPDATE,
-    //   payload: { fileInfo },
-    // });
+    const { ext } = getFileType(path);
+    if (ext === "md") {
+      const buffer = await readFile(path);
+      const content = buffer.toString();
+      const fileInfo = { content, name };
+      dispatch({
+        type: ViewActions.TABS_UPDATE,
+        payload: { fileInfo },
+      });
+    } else {
+      dispatch({
+        type: ViewActions.UNSUPPORT_TYPE,
+        payload: { name },
+      });
+    }
   };
   const [x, setX] = useState([]);
   useEffect(() => {

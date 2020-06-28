@@ -11,8 +11,24 @@ function* tabs_update(action) {
   const { View } = yield select();
   const { edtiorSyncFn } = View;
 
+  yield put({ type: ViewActions.HIDE_UNSUPPORT_VIEW });
+
   // update editor and preview
   edtiorSyncFn(content);
+
+  // update editor title
+  yield put({ type: TitleBarActions.UPDATE_TITLE, payload: { title: name } });
+
+  // add new tab to tabs
+  yield put({ type: TabsActions.ADD_NEW_TAB, payload: { name } });
+}
+
+// unspoort type
+function* unsupport_type(action) {
+  // update editor and preview
+  const { name } = action.payload;
+
+  yield put({ type: ViewActions.SHOW_UNSUPPORT_VIEW });
 
   // update editor title
   yield put({ type: TitleBarActions.UPDATE_TITLE, payload: { title: name } });
@@ -62,4 +78,5 @@ export default [
   takeEvery(ViewActions.TABS_UPDATE, tabs_update),
   takeEvery(ViewActions.CLEAR_EDITOR_CONTENT, close_tab),
   takeEvery(ViewActions.OPEN_DIR, open_dir),
+  takeEvery(ViewActions.UNSUPPORT_TYPE, unsupport_type),
 ];

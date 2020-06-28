@@ -5,6 +5,7 @@ import { Layout, Tabs, WorkBench } from "../components";
 import EditorPreview from "./EditorPreview";
 import Header from "./Header";
 import Bootstrap from "./Bootstrap";
+import UnsupportType from "./UnsupportType";
 import { Dialog } from "@viva-ui/ui";
 
 // TODO: 待删除
@@ -45,6 +46,7 @@ export default function App() {
             <Tabs />
             <EditorPreview />
             <Bootstrap />
+            <UnsupportType />
           </Layout.View>
         </Layout.Container>
         <Dialog title="viva editor" />
