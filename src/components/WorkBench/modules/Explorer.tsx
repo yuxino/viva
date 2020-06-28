@@ -2,6 +2,7 @@ import * as React from "react";
 import { useState, useEffect } from "react";
 import { useMappedState, useDispatch } from "redux-react-hook";
 import { readFile, readdir } from "fs-extra";
+import { getFileType } from "lemuro";
 import ViewActions from "../../../actions/View";
 
 function Explorer() {
@@ -9,7 +10,8 @@ function Explorer() {
   const { root } = useMappedState(({ Explore }) => ({ root: Explore.root }));
   if (root === "") return <div>'NOT THING'</div>;
   const updateView = async (path, name) => {
-    console.log(await readFile(path));
+    console.log(getFileType(path));
+    // console.log(await readFile(path));
     // const buffer = await readFile(path);
     // const content = buffer.toString();
     // const fileInfo = { content, name };
