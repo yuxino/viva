@@ -12,7 +12,6 @@
     "electron": "^9.0.4",
     "html-webpack-plugin": "^4.3.0",
     "lemuro": "^2.0.2",
-    "npm-run-all": "^4.1.5",
     "source-map-loader": "^1.0.0",
     "style-loader": "^1.2.1",
     "ts-loader": "^7.0.5",
@@ -24,8 +23,8 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
-    "dev": "rm -rf .tmp && run-p dev-renderer dev-main",
-    "dev-renderer": "webpack-dev-server --config ./config/webpack.renderer.js -w ",
+    "dev": "rm -rf .tmp && concurrently -c bgBlue,bgCyan  -n devserver,mainbuild \"yarn dev-renderer\" \"yarn dev-main\"",
+    "dev-renderer": "webpack-dev-server --config ./config/webpack.renderer.js -w",
     "dev-main": "webpack --config ./config/webpack.main.js -w ",
     "start": "electron ./.tmp/main.js"
   },
@@ -34,6 +33,7 @@
     "@types/styled-components": "^5.1.0",
     "@viva-ui/theme": "^1.0.2",
     "@viva-ui/ui": "^1.0.10",
+    "concurrently": "^5.2.0",
     "immer": "^7.0.1",
     "markdown-it": "^11.0.0",
     "react": "^16.13.1",

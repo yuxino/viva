@@ -6,23 +6,10 @@ import EditorPreview from "./EditorPreview";
 import Header from "./Header";
 import Bootstrap from "./Bootstrap";
 import UnsupportType from "./UnsupportType";
-import { Dialog } from "@viva-ui/ui";
 
 // TODO: 待删除
 import { store } from "../store/configureStore";
 import ViewActions from "../actions/View";
-
-/**
- * APP Layout ⤵️
- *
- * FileDrop
- * |> Header
- * |> Sidebar
- * |> Workbench
- * |> Main
- *     |> tabs
- *     |> EditorPreview | Bootstrap
- */
 
 export default function App() {
   // TODO: 待删除
@@ -36,23 +23,18 @@ export default function App() {
   // </FileDrop>
 
   return (
-    <>
-      <Layout>
-        <Header />
-        <Layout.Container>
-          <Layout.Sidebar />
-          <WorkBench />
-          <Layout.View>
-            <Tabs />
-            <EditorPreview />
-            <Bootstrap />
-            <UnsupportType />
-          </Layout.View>
-        </Layout.Container>
-        <Dialog title="viva editor" />
-      </Layout>
-    </>
+    <Layout>
+      <Header />
+      <Layout.Container>
+        <Layout.Sidebar />
+        <WorkBench />
+        <Layout.View>
+          <Tabs />
+          <EditorPreview />
+          <Bootstrap />
+          <UnsupportType />
+        </Layout.View>
+      </Layout.Container>
+    </Layout>
   );
 }
-
-// export default () => <App />;
