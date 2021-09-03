@@ -34,7 +34,7 @@
     "@viva-ui/theme": "^1.0.2",
     "@viva-ui/ui": "^1.0.10",
     "concurrently": "^5.2.0",
-    "immer": "^7.0.1",
+    "immer": "^9.0.6",
     "markdown-it": "^11.0.0",
     "react": "^16.13.1",
     "react-dnd": "^11.1.3",
