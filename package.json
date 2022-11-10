@@ -9,7 +9,7 @@
     "@types/react": "^16.9.37",
     "@types/react-dom": "^16.9.8",
     "css-loader": "^3.6.0",
-    "electron": "^11.5.0",
+    "electron": "^18.3.7",
     "html-webpack-plugin": "^4.3.0",
     "lemuro": "^2.0.2",
     "source-map-loader": "^1.0.0",
