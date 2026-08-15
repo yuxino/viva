@@ -1,33 +1,33 @@
 # Viva
 
-A small desktop Markdown editor built with Electron, React, and TypeScript.
+一个基于 Electron、React 和 TypeScript 开发的桌面 Markdown 编辑器。
 
-Viva keeps writing and previewing side by side, with a simple desktop workspace for local Markdown files.
+Viva 将编辑和预览放在同一个工作区里，专注于本地 Markdown 文件的阅读与编辑。
 
-## Features
+## 功能
 
-- Split-pane Markdown editor and live preview
-- Synchronized scrolling between editor and preview
-- Tabbed workspace
-- Desktop app powered by Electron
+- 左右分栏编辑与实时预览
+- 编辑区与预览区同步滚动
+- 多标签页工作区
+- 基于 Electron 的桌面应用
 
-## Stack
+## 技术栈
 
 Electron · React · TypeScript · Redux · redux-saga · styled-components · markdown-it
 
-## Development
+## 开发
 
 ```bash
 yarn
 yarn dev
 ```
 
-Then start Electron in another terminal:
+然后在另一个终端启动 Electron：
 
 ```bash
 yarn start
 ```
 
-## About
+## 关于
 
-Viva is a small personal project exploring desktop app development and Markdown editing.
+Viva 是一个用于探索桌面应用开发与 Markdown 编辑体验的个人项目。
