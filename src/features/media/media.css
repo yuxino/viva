@@ -1,0 +1,182 @@
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  max-height: none;
+  padding: 0;
+  margin: 0;
+  color: #f4f4ef;
+  background: transparent;
+  border: 0;
+}
+
+.image-viewer::backdrop {
+  background: rgb(12 12 11 / 94%);
+  backdrop-filter: blur(18px);
+}
+
+.image-viewer__surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: rgb(17 17 16 / 98%);
+}
+
+.image-viewer__header {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  min-height: 3.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: rgb(10 10 9 / 72%);
+  border-bottom: 1px solid rgb(255 255 255 / 7%);
+  pointer-events: none;
+}
+
+:root[data-platform="macos"] .image-viewer__header {
+  /* Keep the filename clear of the native traffic-light controls. */
+  padding-inline-start: 5.75rem;
+}
+
+.image-viewer__heading {
+  display: grid;
+  min-width: 0;
+  gap: 0.125rem;
+  font-family: var(--font-ui);
+}
+
+.image-viewer__heading strong,
+.image-viewer__heading span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-viewer__heading strong {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.image-viewer__heading span {
+  color: rgb(244 244 239 / 58%);
+  font-size: var(--font-size-2xs);
+}
+
+.image-viewer__controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: rgb(34 34 31 / 78%);
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 22%);
+  pointer-events: auto;
+  backdrop-filter: blur(16px);
+}
+
+.image-viewer__controls button {
+  display: grid;
+  min-width: 1.875rem;
+  height: 1.875rem;
+  place-items: center;
+  padding: 0 var(--space-2);
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+}
+
+.image-viewer__controls button:hover:not(:disabled),
+.image-viewer__controls button:focus-visible {
+  background: rgb(255 255 255 / 10%);
+  outline: none;
+}
+
+.image-viewer__controls button:focus-visible {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 72%);
+}
+
+.image-viewer__controls button:disabled {
+  opacity: 0.34;
+}
+
+.image-viewer__controls output {
+  min-width: 2.75rem;
+  color: inherit;
+  font-size: var(--font-size-2xs);
+}
+
+.image-viewer__separator {
+  width: 1px;
+  height: 1.125rem;
+  margin-inline: var(--space-1);
+  background: rgb(255 255 255 / 13%);
+}
+
+.image-viewer__stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+}
+
+.image-viewer__stage.is-zoomed {
+  cursor: grab;
+}
+
+.image-viewer__stage.is-zoomed:active {
+  cursor: grabbing;
+}
+
+.image-viewer__stage img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: auto;
+  max-width: calc(100% - 4rem);
+  height: auto;
+  max-height: calc(100% - 6rem);
+  object-fit: contain;
+  transform-origin: center;
+  transition: transform var(--duration-fast) var(--ease-standard);
+  will-change: transform;
+}
+
+.image-viewer__stage.is-zoomed:active img {
+  transition: none;
+}
+
+.image-viewer__message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgb(244 244 239 / 62%);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+}
+
+.image-viewer__message.is-error {
+  color: #efb0a9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-viewer__stage img {
+    transition: none;
+  }
+}

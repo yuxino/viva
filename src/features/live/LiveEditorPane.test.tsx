@@ -1,0 +1,337 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { describe, expect, it, vi } from "vitest";
+import type { WorkspaceImageCacheLike } from "../../lib/media";
+import { LiveEditorPane } from "./LiveEditorPane";
+
+function EditableFixture({ onLinkRequest = vi.fn() }) {
+  const [value, setValue] = useState("# Quiet title\n\nA calm paragraph.");
+  const [, setPosition] = useState({ column: 1, line: 1 });
+  return (
+    <LiveEditorPane
+      documentId="note.md"
+      onChange={setValue}
+      onLinkRequest={onLinkRequest}
+      onPositionChange={setPosition}
+      value={value}
+    />
+  );
+}
+
+describe("LiveEditorPane", () => {
+  it("edits one rendered block without rewriting the surrounding Markdown", () => {
+    render(<EditableFixture />);
+
+    fireEvent.click(screen.getByRole("heading", { name: "Quiet title" }));
+    const editor = screen.getByRole("textbox", {
+      name: "Editing block from line 1",
+    });
+    expect(editor).toHaveValue("# Quiet title\n");
+
+    fireEvent.change(editor, { target: { value: "# Better title\n" } });
+    fireEvent.blur(editor);
+
+    expect(
+      screen.getByRole("heading", { name: "Better title" }),
+    ).toBeVisible();
+    expect(screen.getByText("A calm paragraph.")).toBeVisible();
+  });
+
+  it("places the caret in the clicked occurrence of repeated rendered text", () => {
+    render(
+      <LiveEditorPane
+        documentId="repeated.md"
+        onChange={vi.fn()}
+        value="one **one**"
+      />,
+    );
+    const emphasized = document.querySelector("strong");
+    const secondOccurrence = emphasized?.firstChild;
+    expect(emphasized).not.toBeNull();
+    expect(secondOccurrence?.textContent).toBe("one");
+
+    const caretDocument = document as Document & {
+      caretPositionFromPoint?: () => { offset: number; offsetNode: Node };
+    };
+    const original = Object.getOwnPropertyDescriptor(
+      caretDocument,
+      "caretPositionFromPoint",
+    );
+    Object.defineProperty(caretDocument, "caretPositionFromPoint", {
+      configurable: true,
+      value: () => ({ offset: 1, offsetNode: secondOccurrence! }),
+    });
+    try {
+      fireEvent.click(emphasized!, { clientX: 12, clientY: 12 });
+      const editor = screen.getByRole("textbox", {
+        name: "Editing block from line 1",
+      });
+      expect(editor).toHaveProperty("selectionStart", 7);
+      expect(editor).toHaveProperty("selectionEnd", 7);
+    } finally {
+      if (original) {
+        Object.defineProperty(caretDocument, "caretPositionFromPoint", original);
+      } else {
+        Reflect.deleteProperty(caretDocument, "caretPositionFromPoint");
+      }
+    }
+  });
+
+  it("ignores hidden link destinations when mapping a repeated visible word", () => {
+    render(
+      <LiveEditorPane
+        documentId="links.md"
+        onChange={vi.fn()}
+        value="**one** [one](https://example.com/a/very/very/long/path)"
+      />,
+    );
+    const firstOccurrence = document.querySelector("strong")?.firstChild;
+    expect(firstOccurrence?.textContent).toBe("one");
+    const caretDocument = document as Document & {
+      caretPositionFromPoint?: () => { offset: number; offsetNode: Node };
+    };
+    const original = Object.getOwnPropertyDescriptor(
+      caretDocument,
+      "caretPositionFromPoint",
+    );
+    Object.defineProperty(caretDocument, "caretPositionFromPoint", {
+      configurable: true,
+      value: () => ({ offset: 1, offsetNode: firstOccurrence! }),
+    });
+    try {
+      fireEvent.click(document.querySelector("strong")!, {
+        clientX: 12,
+        clientY: 12,
+      });
+      expect(
+        screen.getByRole("textbox", { name: "Editing block from line 1" }),
+      ).toHaveProperty("selectionStart", 3);
+    } finally {
+      if (original) {
+        Object.defineProperty(caretDocument, "caretPositionFromPoint", original);
+      } else {
+        Reflect.deleteProperty(caretDocument, "caretPositionFromPoint");
+      }
+    }
+  });
+
+  it("ignores parentheses inside an angle-bracket link destination", () => {
+    const value = '[one](<https://x.test/a(b>) **one**';
+    render(
+      <LiveEditorPane documentId="links.md" onChange={vi.fn()} value={value} />,
+    );
+    const secondOccurrence = document.querySelector("strong")?.firstChild;
+    expect(secondOccurrence?.textContent).toBe("one");
+    const caretDocument = document as Document & {
+      caretPositionFromPoint?: () => { offset: number; offsetNode: Node };
+    };
+    const original = Object.getOwnPropertyDescriptor(
+      caretDocument,
+      "caretPositionFromPoint",
+    );
+    Object.defineProperty(caretDocument, "caretPositionFromPoint", {
+      configurable: true,
+      value: () => ({ offset: 1, offsetNode: secondOccurrence! }),
+    });
+    try {
+      fireEvent.click(document.querySelector("strong")!, {
+        clientX: 12,
+        clientY: 12,
+      });
+      expect(
+        screen.getByRole("textbox", { name: "Editing block from line 1" }),
+      ).toHaveProperty("selectionStart", value.lastIndexOf("one") + 1);
+    } finally {
+      if (original) {
+        Object.defineProperty(caretDocument, "caretPositionFromPoint", original);
+      } else {
+        Reflect.deleteProperty(caretDocument, "caretPositionFromPoint");
+      }
+    }
+  });
+
+  it("treats a quote at the start of an unbracketed link as destination text", () => {
+    const value = '[one]("a) **one**';
+    render(
+      <LiveEditorPane documentId="links.md" onChange={vi.fn()} value={value} />,
+    );
+    const secondOccurrence = document.querySelector("strong")?.firstChild;
+    expect(secondOccurrence?.textContent).toBe("one");
+    const caretDocument = document as Document & {
+      caretPositionFromPoint?: () => { offset: number; offsetNode: Node };
+    };
+    const original = Object.getOwnPropertyDescriptor(
+      caretDocument,
+      "caretPositionFromPoint",
+    );
+    Object.defineProperty(caretDocument, "caretPositionFromPoint", {
+      configurable: true,
+      value: () => ({ offset: 1, offsetNode: secondOccurrence! }),
+    });
+    try {
+      fireEvent.click(document.querySelector("strong")!, {
+        clientX: 12,
+        clientY: 12,
+      });
+      expect(
+        screen.getByRole("textbox", { name: "Editing block from line 1" }),
+      ).toHaveProperty("selectionStart", value.lastIndexOf("one") + 1);
+    } finally {
+      if (original) {
+        Object.defineProperty(caretDocument, "caretPositionFromPoint", original);
+      } else {
+        Reflect.deleteProperty(caretDocument, "caretPositionFromPoint");
+      }
+    }
+  });
+
+  it("opens rendered links with the primary modifier instead of editing", () => {
+    const onLinkRequest = vi.fn();
+    render(
+      <LiveEditorPane
+        documentId="links.md"
+        onChange={vi.fn()}
+        onLinkRequest={onLinkRequest}
+        value="[Viva](https://example.com)"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Viva" }), {
+      metaKey: true,
+    });
+    expect(onLinkRequest).toHaveBeenCalledWith("https://example.com");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("keeps full-document reference links resolved across editable blocks", () => {
+    render(
+      <LiveEditorPane
+        documentId="references.md"
+        onChange={vi.fn()}
+        value={"[Viva][site]\n\n[site]: https://example.com"}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Viva" })).toHaveAttribute(
+      "href",
+      "https://example.com",
+    );
+  });
+
+  it("keeps a multi-paragraph list item in one live block", () => {
+    render(
+      <LiveEditorPane
+        documentId="list.md"
+        onChange={vi.fn()}
+        value={"- First paragraph\n\n  Second paragraph\n\n- Next item"}
+      />,
+    );
+
+    expect(screen.getAllByRole("list")).toHaveLength(1);
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("renders task-list checkboxes without making them editable controls", () => {
+    render(
+      <LiveEditorPane
+        documentId="tasks.md"
+        onChange={vi.fn()}
+        value={"- [x] Done\n- [ ] Next"}
+      />,
+    );
+
+    const checkboxes = screen.getAllByRole("checkbox", { hidden: true });
+    expect(checkboxes).toHaveLength(2);
+    expect(checkboxes[0]).toBeChecked();
+    expect(checkboxes[1]).not.toBeChecked();
+    expect(checkboxes.every((checkbox) => checkbox.hasAttribute("disabled"))).toBe(
+      true,
+    );
+  });
+
+  it("loads a local image inline, opens it, and releases its cache lease", async () => {
+    const release = vi.fn();
+    const cache: WorkspaceImageCacheLike = {
+      acquire: vi.fn().mockResolvedValue({
+        height: 720,
+        mediaType: "image/png",
+        relativePath: "art/room.png",
+        release,
+        sizeBytes: 16,
+        url: "blob:viva-room",
+        width: 1280,
+      }),
+    };
+    const onImageRequest = vi.fn();
+    const { unmount } = render(
+      <LiveEditorPane
+        documentId="notes/day.md"
+        imageCache={cache}
+        onChange={vi.fn()}
+        onImageRequest={onImageRequest}
+        value="![Room](../art/room.png)"
+        workspaceRoot="/workspace"
+      />,
+    );
+
+    const image = await screen.findByRole("img", { name: "Room" });
+    expect(image).toHaveAttribute("src", "blob:viva-room");
+    fireEvent.click(image);
+    expect(onImageRequest).toHaveBeenCalledWith("../art/room.png", "Room");
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: "Open full-size image · Room" }),
+      { key: "Enter" },
+    );
+    expect(onImageRequest).toHaveBeenCalledTimes(2);
+    unmount();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the platform modifier in the Live editing hint", () => {
+    document.documentElement.dataset.platform = "windows";
+    try {
+      render(<EditableFixture />);
+      expect(
+        screen.getAllByRole("group", {
+          name: "Click to edit this block · Ctrl-click links to open",
+        }),
+      ).not.toHaveLength(0);
+    } finally {
+      delete document.documentElement.dataset.platform;
+    }
+  });
+
+  it("keeps remote images inert in Live mode", () => {
+    const cache: WorkspaceImageCacheLike = { acquire: vi.fn() };
+    const onImageRequest = vi.fn();
+    render(
+      <LiveEditorPane
+        documentId="notes/day.md"
+        imageCache={cache}
+        onChange={vi.fn()}
+        onImageRequest={onImageRequest}
+        value="![Tracker](https://example.com/pixel.png)"
+        workspaceRoot="/workspace"
+      />,
+    );
+
+    const placeholder = screen.getByRole("img", {
+      name: "Remote image blocked · Tracker",
+    });
+    fireEvent.click(placeholder);
+    expect(cache.acquire).not.toHaveBeenCalled();
+    expect(onImageRequest).not.toHaveBeenCalled();
+  });
+
+  it("restores keyboard focus to the rendered block after Escape", async () => {
+    render(<EditableFixture />);
+    const block = screen.getAllByRole("group")[0];
+    expect(block).toBeDefined();
+    fireEvent.keyDown(block!, { key: "Enter" });
+    const editor = screen.getByRole("textbox", {
+      name: "Editing block from line 1",
+    });
+    fireEvent.keyDown(editor, { key: "Escape" });
+    await waitFor(() => expect(screen.getAllByRole("group")[0]).toHaveFocus());
+  });
+});

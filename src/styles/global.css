@@ -1,0 +1,166 @@
+@import "./tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root,
+#app {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  background: var(--color-app);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  overflow: hidden;
+  background: var(--color-app);
+  color: var(--color-ink);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-ui);
+}
+
+button,
+input,
+textarea,
+select {
+  color: inherit;
+  font: inherit;
+}
+
+button,
+input,
+textarea {
+  margin: 0;
+}
+
+button {
+  border: 0;
+}
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+[role="menuitem"]:not([aria-disabled="true"]),
+summary {
+  cursor: default;
+}
+
+a {
+  color: inherit;
+}
+
+img,
+svg {
+  display: block;
+}
+
+svg {
+  flex: none;
+}
+
+::selection {
+  background: var(--color-selection);
+  color: var(--color-ink);
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+[aria-disabled="true"],
+:disabled {
+  cursor: not-allowed;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.viva-drag-region {
+  -webkit-app-region: drag;
+}
+
+.viva-no-drag,
+.viva-drag-region button,
+.viva-drag-region input,
+.viva-drag-region a {
+  -webkit-app-region: no-drag;
+}
+
+.viva-scroll-region {
+  overscroll-behavior: contain;
+  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.viva-scroll-region::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.viva-scroll-region::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.viva-scroll-region::-webkit-scrollbar-thumb {
+  min-width: 32px;
+  min-height: 32px;
+  background: var(--color-border-strong);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: var(--radius-pill);
+}
+
+.viva-scroll-region::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-muted);
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-color: Highlight;
+  }
+}

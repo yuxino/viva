@@ -1,0 +1,168 @@
+:root {
+  color-scheme: light;
+
+  --font-ui: "Avenir Next", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --font-editor: "SFMono-Regular", "Cascadia Code", "Roboto Mono", ui-monospace,
+    monospace;
+  --font-preview: "Iowan Old Style", "Palatino Linotype", "Book Antiqua",
+    Georgia, serif;
+
+  --font-size-2xs: 0.6875rem;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-md: 0.9375rem;
+  --font-size-lg: 1.0625rem;
+  --font-size-xl: 1.375rem;
+  --font-size-2xl: 1.75rem;
+  --font-size-3xl: 2.5rem;
+
+  --line-height-tight: 1.15;
+  --line-height-ui: 1.5;
+  --line-height-editor: 1.67;
+  --line-height-reading: 1.72;
+
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  --radius-xs: 0.1875rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-pill: 999px;
+
+  --size-titlebar: 3rem;
+  --size-activity-rail: 2.75rem;
+  --size-sidebar: 14.75rem;
+  --size-sidebar-min: 12.5rem;
+  --size-sidebar-max: 22.5rem;
+  --size-tab-strip: 2.25rem;
+  --size-statusbar: 1.625rem;
+  --size-control-sm: 1.75rem;
+  --size-control-md: 2rem;
+  --size-control-lg: 2.375rem;
+  --size-touch-target: 2.75rem;
+  --size-reading-column: 44rem;
+
+  --color-app: #efefec;
+  --color-panel: #f7f7f4;
+  --color-canvas: #fcfcf9;
+  --color-canvas-raised: #fffefa;
+  --color-ink: #1c1c1a;
+  --color-ink-secondary: #656560;
+  --color-ink-muted: #92928b;
+  --color-border: #deded8;
+  --color-border-strong: #c7c7bf;
+  --color-hover: #ebebe6;
+  --color-selected: #e2e2dc;
+  --color-pressed: #d8d8d1;
+  --color-focus: #1c1c1a;
+  --color-selection: #d8d8d0;
+  --color-code-bg: #f2f2ee;
+  --color-inverse: #fcfcf9;
+  --color-overlay: rgb(24 24 22 / 28%);
+  --color-scrim: rgb(24 24 22 / 46%);
+
+  --color-danger: #963d36;
+  --color-danger-bg: #f5e9e6;
+  --color-warning: #785b1c;
+  --color-warning-bg: #f5efdf;
+  --color-success: #426648;
+  --color-success-bg: #e9f0e9;
+
+  --shadow-popover: 0 8px 24px rgb(31 31 28 / 8%);
+  --shadow-dialog: 0 16px 38px rgb(31 31 28 / 12%);
+
+  --duration-instant: 80ms;
+  --duration-fast: 120ms;
+  --duration-panel: 160ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+  --z-sidebar: 10;
+  --z-popover: 40;
+  --z-dialog: 60;
+  --z-tooltip: 80;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-app: #171716;
+  --color-panel: #1e1e1c;
+  --color-canvas: #232321;
+  --color-canvas-raised: #282826;
+  --color-ink: #f1f1ec;
+  --color-ink-secondary: #b7b7af;
+  --color-ink-muted: #85857e;
+  --color-border: #363633;
+  --color-border-strong: #4a4a45;
+  --color-hover: #2a2a27;
+  --color-selected: #32322e;
+  --color-pressed: #3a3a35;
+  --color-focus: #f1f1ec;
+  --color-selection: #4b4b45;
+  --color-code-bg: #1b1b1a;
+  --color-inverse: #1c1c1a;
+  --color-overlay: rgb(0 0 0 / 36%);
+  --color-scrim: rgb(0 0 0 / 58%);
+
+  --color-danger: #ef9b91;
+  --color-danger-bg: #432826;
+  --color-warning: #dfc47e;
+  --color-warning-bg: #3d3522;
+  --color-success: #9bc5a1;
+  --color-success-bg: #27382a;
+
+  --shadow-popover: 0 10px 28px rgb(0 0 0 / 18%);
+  --shadow-dialog: 0 18px 40px rgb(0 0 0 / 22%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --color-app: #171716;
+    --color-panel: #1e1e1c;
+    --color-canvas: #232321;
+    --color-canvas-raised: #282826;
+    --color-ink: #f1f1ec;
+    --color-ink-secondary: #b7b7af;
+    --color-ink-muted: #85857e;
+    --color-border: #363633;
+    --color-border-strong: #4a4a45;
+    --color-hover: #2a2a27;
+    --color-selected: #32322e;
+    --color-pressed: #3a3a35;
+    --color-focus: #f1f1ec;
+    --color-selection: #4b4b45;
+    --color-code-bg: #1b1b1a;
+    --color-inverse: #1c1c1a;
+    --color-overlay: rgb(0 0 0 / 36%);
+    --color-scrim: rgb(0 0 0 / 58%);
+    --color-danger: #ef9b91;
+    --color-danger-bg: #432826;
+    --color-warning: #dfc47e;
+    --color-warning-bg: #3d3522;
+    --color-success: #9bc5a1;
+    --color-success-bg: #27382a;
+    --shadow-popover: 0 10px 28px rgb(0 0 0 / 18%);
+    --shadow-dialog: 0 18px 40px rgb(0 0 0 / 22%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0ms;
+    --duration-fast: 0ms;
+    --duration-panel: 0ms;
+  }
+}

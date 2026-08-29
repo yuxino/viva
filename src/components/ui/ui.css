@@ -1,0 +1,745 @@
+.viva-button,
+.viva-icon-button,
+.viva-segmented__item,
+.viva-menu__item,
+.viva-command-palette__item {
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.viva-button {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  color: var(--color-ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.005em;
+  user-select: none;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
+}
+
+.viva-button[data-size="small"] {
+  min-height: var(--size-control-sm);
+  padding-inline: var(--space-3);
+  font-size: var(--font-size-xs);
+}
+
+.viva-button[data-size="medium"] {
+  min-height: var(--size-control-md);
+  padding-inline: var(--space-4);
+}
+
+.viva-button[data-size="large"] {
+  min-height: var(--size-control-lg);
+  padding-inline: var(--space-5);
+  font-size: var(--font-size-md);
+}
+
+.viva-button[data-variant="primary"] {
+  color: var(--color-inverse);
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+}
+
+.viva-button[data-variant="primary"]:hover:not(:disabled) {
+  background: var(--color-ink-secondary);
+  border-color: var(--color-ink-secondary);
+}
+
+.viva-button[data-variant="secondary"] {
+  background: var(--color-canvas-raised);
+  border-color: var(--color-border-strong);
+}
+
+.viva-button[data-variant="secondary"]:hover:not(:disabled),
+.viva-button[data-variant="ghost"]:hover:not(:disabled) {
+  background: var(--color-hover);
+  border-color: var(--color-border);
+}
+
+.viva-button[data-variant="ghost"] {
+  color: var(--color-ink-secondary);
+}
+
+.viva-button[data-variant="danger"] {
+  color: var(--color-inverse);
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.viva-button[data-variant="danger"]:hover:not(:disabled) {
+  opacity: 0.86;
+}
+
+.viva-button:active:not(:disabled),
+.viva-icon-button:active:not(:disabled),
+.viva-segmented__item:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.viva-button:disabled {
+  opacity: 0.46;
+}
+
+.viva-button__content {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.viva-button__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viva-button__icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+}
+
+.viva-button.is-loading .viva-button__content {
+  visibility: hidden;
+}
+
+.viva-button__spinner {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  translate: -50% -50%;
+}
+
+.viva-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: viva-spin 700ms linear infinite;
+}
+
+@keyframes viva-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+.viva-icon-button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  color: var(--color-ink-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.viva-icon-button[data-size="small"] {
+  width: var(--size-control-sm);
+  height: var(--size-control-sm);
+}
+
+.viva-icon-button[data-size="medium"] {
+  width: var(--size-control-md);
+  height: var(--size-control-md);
+}
+
+.viva-icon-button[data-size="large"] {
+  width: var(--size-control-lg);
+  height: var(--size-control-lg);
+}
+
+.viva-icon-button:hover:not(:disabled),
+.viva-icon-button[data-selected="true"] {
+  color: var(--color-ink);
+  background: var(--color-hover);
+}
+
+.viva-icon-button[data-selected="true"] {
+  border-color: var(--color-border);
+}
+
+.viva-icon-button:disabled {
+  color: var(--color-ink-muted);
+  opacity: 0.5;
+}
+
+.viva-icon-button__icon {
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.viva-tooltip-anchor,
+.viva-menu-anchor {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.viva-tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  display: flex;
+  max-width: 17rem;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.34rem 0.5rem;
+  color: var(--color-inverse);
+  background: var(--color-ink);
+  border: 1px solid var(--color-ink);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-popover);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-2xs);
+  font-weight: 550;
+  line-height: 1.35;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: viva-tooltip-in var(--duration-fast) var(--ease-out);
+}
+
+.viva-tooltip[data-placement="top"] {
+  transform: translate(-50%, -100%);
+}
+
+.viva-tooltip[data-placement="bottom"] {
+  transform: translate(-50%, 0);
+}
+
+.viva-tooltip[data-placement="left"] {
+  transform: translate(-100%, -50%);
+}
+
+.viva-tooltip[data-placement="right"] {
+  transform: translate(0, -50%);
+}
+
+.viva-tooltip__shortcut {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  opacity: 0.62;
+}
+
+@keyframes viva-tooltip-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.viva-segmented {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-sm) + 2px);
+}
+
+.viva-segmented__item {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0 var(--space-3);
+  color: var(--color-ink-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-xs);
+  font-weight: 550;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.viva-segmented[data-size="small"] .viva-segmented__item {
+  min-height: 1.5rem;
+  padding-inline: var(--space-2);
+  font-size: var(--font-size-2xs);
+}
+
+.viva-segmented[data-size="medium"] .viva-segmented__item {
+  min-height: 1.75rem;
+}
+
+.viva-segmented__item:hover:not(:disabled) {
+  color: var(--color-ink-secondary);
+  background: var(--color-hover);
+}
+
+.viva-segmented__item[data-selected="true"] {
+  color: var(--color-ink);
+  background: var(--color-canvas-raised);
+  border-color: var(--color-border-strong);
+}
+
+.viva-segmented__item:disabled {
+  opacity: 0.42;
+}
+
+.viva-segmented__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+
+.viva-empty-state {
+  display: flex;
+  width: min(100%, 24rem);
+  min-height: 15rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+  padding: var(--space-8);
+  color: var(--color-ink-secondary);
+  text-align: center;
+}
+
+.viva-empty-state.is-compact {
+  min-height: 0;
+  padding: var(--space-6) var(--space-4);
+}
+
+.viva-empty-state__icon {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-bottom: var(--space-4);
+  place-items: center;
+  color: var(--color-ink-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+}
+
+.viva-empty-state__title {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+.viva-empty-state__description {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.viva-empty-state__description > :first-child {
+  margin-top: 0;
+}
+
+.viva-empty-state__description > :last-child {
+  margin-bottom: 0;
+}
+
+.viva-empty-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.viva-dialog,
+.viva-command-palette {
+  padding: 0;
+  color: var(--color-ink);
+  background: transparent;
+  border: 0;
+  overflow: visible;
+}
+
+.viva-dialog {
+  width: calc(100vw - var(--space-8));
+  max-width: none;
+}
+
+.viva-dialog[data-size="small"] {
+  width: min(22.5rem, calc(100vw - var(--space-8)));
+}
+
+.viva-dialog[data-size="medium"] {
+  width: min(30rem, calc(100vw - var(--space-8)));
+}
+
+.viva-dialog[data-size="large"] {
+  width: min(40rem, calc(100vw - var(--space-8)));
+}
+
+.viva-dialog::backdrop,
+.viva-command-palette::backdrop {
+  background: var(--color-overlay);
+}
+
+.viva-dialog[open] .viva-dialog__surface,
+.viva-command-palette[open] .viva-command-palette__surface {
+  animation: viva-surface-in var(--duration-panel) var(--ease-out);
+}
+
+@keyframes viva-surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.viva-dialog__surface {
+  overflow: hidden;
+  background: var(--color-canvas-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dialog);
+}
+
+.viva-dialog__header {
+  display: flex;
+  min-height: 3.25rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-4) var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.viva-dialog__heading {
+  min-width: 0;
+}
+
+.viva-dialog__title {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.012em;
+}
+
+.viva-dialog__description {
+  margin-top: var(--space-1);
+  color: var(--color-ink-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.viva-dialog__body {
+  max-height: min(65vh, 34rem);
+  padding: var(--space-5);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.viva-dialog__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-panel);
+  border-top: 1px solid var(--color-border);
+}
+
+.viva-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  min-width: 12rem;
+  max-width: min(19rem, calc(100vw - var(--space-4)));
+  max-height: min(26rem, calc(100vh - var(--space-4)));
+  padding: var(--space-1);
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--color-ink);
+  background: var(--color-canvas-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  animation: viva-menu-in var(--duration-fast) var(--ease-out);
+}
+
+@keyframes viva-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.viva-menu__entry {
+  display: contents;
+}
+
+.viva-menu__separator {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--color-border);
+}
+
+.viva-menu__item {
+  display: grid;
+  width: 100%;
+  min-height: 1.875rem;
+  grid-template-columns: 1rem auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  color: var(--color-ink);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-xs);
+  line-height: 1.3;
+  text-align: start;
+}
+
+.viva-menu__item:hover:not(:disabled),
+.viva-menu__item:focus-visible {
+  background: var(--color-hover);
+  outline: none;
+}
+
+.viva-menu__item.is-danger {
+  color: var(--color-danger);
+}
+
+.viva-menu__item:disabled {
+  color: var(--color-ink-muted);
+  opacity: 0.52;
+}
+
+.viva-menu__check,
+.viva-menu__icon {
+  display: grid;
+  place-items: center;
+}
+
+.viva-menu__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viva-menu__shortcut,
+.viva-command-palette__shortcut {
+  padding: 0;
+  color: var(--color-ink-muted);
+  background: transparent;
+  border: 0;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-2xs);
+  white-space: nowrap;
+}
+
+.viva-command-palette {
+  position: fixed;
+  inset: 0;
+  width: min(40rem, calc(100vw - var(--space-8)));
+  max-width: none;
+  height: fit-content;
+  max-height: calc(100vh - 5.5rem);
+  margin: 4.5rem auto auto;
+}
+
+.viva-command-palette__surface {
+  display: flex;
+  max-height: calc(100vh - 5.5rem);
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-canvas-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dialog);
+}
+
+.viva-command-palette__search {
+  display: grid;
+  min-height: 3rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  color: var(--color-ink-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.viva-command-palette__input {
+  width: 100%;
+  height: 2.875rem;
+  min-width: 0;
+  padding: 0;
+  color: var(--color-ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  line-height: 1;
+}
+
+.viva-command-palette__input::placeholder {
+  color: var(--color-ink-muted);
+  opacity: 1;
+}
+
+.viva-command-palette__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.viva-command-palette__results {
+  min-height: 4rem;
+  max-height: min(24rem, calc(100vh - 12rem));
+  padding: var(--space-1);
+  overflow-y: auto;
+}
+
+.viva-command-palette__section {
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  color: var(--color-ink-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-2xs);
+  font-weight: 650;
+  letter-spacing: 0.055em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.viva-command-palette__item {
+  display: grid;
+  width: 100%;
+  min-height: 2.5rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-ink);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  text-align: start;
+}
+
+.viva-command-palette__item[data-active="true"] {
+  background: var(--color-selected);
+}
+
+.viva-command-palette__item:disabled {
+  opacity: 0.45;
+}
+
+.viva-command-palette__icon {
+  display: grid;
+  place-items: center;
+  color: var(--color-ink-secondary);
+}
+
+.viva-command-palette__copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.viva-command-palette__label,
+.viva-command-palette__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viva-command-palette__label {
+  font-size: var(--font-size-sm);
+  font-weight: 550;
+  line-height: 1.35;
+}
+
+.viva-command-palette__detail {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-2xs);
+  line-height: 1.35;
+}
+
+.viva-command-palette__empty {
+  display: grid;
+  min-height: 6rem;
+  place-items: center;
+  padding: var(--space-5);
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+.viva-command-palette__footer {
+  display: flex;
+  min-height: 1.875rem;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-3);
+  color: var(--color-ink-muted);
+  background: var(--color-panel);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-2xs);
+}
+
+@media (max-width: 37.5rem) {
+  .viva-dialog,
+  .viva-command-palette {
+    width: calc(100vw - var(--space-4));
+  }
+
+  .viva-command-palette {
+    margin-top: var(--space-8);
+  }
+}
+
+@media (forced-colors: active) {
+  .viva-button,
+  .viva-icon-button,
+  .viva-segmented,
+  .viva-segmented__item,
+  .viva-dialog__surface,
+  .viva-menu,
+  .viva-command-palette__surface {
+    border-color: CanvasText;
+  }
+
+  .viva-segmented__item[data-selected="true"],
+  .viva-command-palette__item[data-active="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
