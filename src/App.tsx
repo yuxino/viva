@@ -88,6 +88,7 @@ import {
   hasNativeShell,
   openExternalUrl,
   openNewWindow,
+  revealWorkspaceItem,
   setNativeMenuLanguage,
 } from "./lib/native";
 import { boundTextPrefix } from "./lib/textBounds";
@@ -373,6 +374,15 @@ export function App() {
             ]
           : [];
       }),
+    [state.documentOrder, state.documents],
+  );
+  const modifiedPaths = useMemo(
+    () =>
+      new Set(
+        state.documentOrder.filter((id) =>
+          isDocumentDirty(state.documents[id]),
+        ),
+      ),
     [state.documentOrder, state.documents],
   );
   const workspaceFiles = useMemo(
@@ -1018,10 +1028,18 @@ export function App() {
       <FileTree
         activePath={imageViewerSource?.relativePath ?? state.activeDocumentId}
         expandedPaths={state.expandedPaths}
+        modifiedPaths={modifiedPaths}
         nodes={state.workspace.children}
         onOpen={(path) => {
           if (workspaceImagePaths.has(path)) openWorkspaceImage(path);
           else void controller.openDocument(path);
+        }}
+        onReveal={(path) => {
+          const workspaceRoot = state.workspace?.rootPath;
+          if (!workspaceRoot) return;
+          void revealWorkspaceItem(workspaceRoot, path).catch(
+            controller.reportError,
+          );
         }}
         onToggle={controller.toggleTreePath}
         renderIcon={(node: FileTreeNode, iconState) =>
@@ -1164,6 +1182,8 @@ export function App() {
               closeIcon="×"
               onActivate={controller.activateDocument}
               onClose={requestTabClose}
+              onSave={(id) => void controller.saveDocument(id)}
+              onSaveAs={(id) => void controller.saveDocumentAs(id)}
               tabs={tabs}
             />
           ) : null}

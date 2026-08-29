@@ -21,8 +21,13 @@ import {
   type EditorPosition,
   type TextSelection,
 } from "./editing";
+import { ContextMenu, type MenuItem } from "../../components/ui";
 import { useI18n } from "../../i18n";
-import { hasPrimaryShortcutModifier } from "../../lib/keyboard";
+import { readClipboardText, writeClipboardText } from "../../lib/clipboard";
+import {
+  getVivaPlatform,
+  hasPrimaryShortcutModifier,
+} from "../../lib/keyboard";
 
 export interface EditorPaneProps {
   value: string;
@@ -257,12 +262,79 @@ export const EditorPane = forwardRef<HTMLTextAreaElement, EditorPaneProps>(
       );
     }
 
+    function replaceSelection(replacement: string): void {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const nextValue = `${value.slice(0, textarea.selectionStart)}${replacement}${value.slice(textarea.selectionEnd)}`;
+      const caret = textarea.selectionStart + replacement.length;
+      pendingSelectionRef.current = {
+        expectedValue: nextValue,
+        selection: { direction: "none", end: caret, start: caret },
+      };
+      onChange(nextValue);
+    }
+
+    async function copySelection(cut = false): Promise<void> {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const selected = value.slice(textarea.selectionStart, textarea.selectionEnd);
+      if (!selected || !(await writeClipboardText(selected))) return;
+      if (cut && !readOnly && !disabled) replaceSelection("");
+      else textarea.focus();
+    }
+
+    async function pasteSelection(): Promise<void> {
+      if (readOnly || disabled) return;
+      const clipboard = await readClipboardText();
+      if (clipboard !== null) replaceSelection(clipboard);
+    }
+
+    function selectAll(): void {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(0, value.length);
+      publishSelection({ direction: "none", end: value.length, start: 0 });
+    }
+
+    const primary = getVivaPlatform() === "macos" ? "⌘" : "Ctrl+";
+    const contextItems: MenuItem[] = [
+      {
+        disabled: readOnly || disabled,
+        id: "cut",
+        label: t("Cut"),
+        onSelect: () => void copySelection(true),
+        shortcut: `${primary}X`,
+      },
+      {
+        id: "copy",
+        label: t("Copy"),
+        onSelect: () => void copySelection(false),
+        shortcut: `${primary}C`,
+      },
+      {
+        disabled: readOnly || disabled,
+        id: "paste",
+        label: t("Paste"),
+        onSelect: () => void pasteSelection(),
+        shortcut: `${primary}V`,
+      },
+      {
+        id: "select-all",
+        label: t("Select all"),
+        onSelect: selectAll,
+        separatorBefore: true,
+        shortcut: `${primary}A`,
+      },
+    ];
+
     return (
       <section
         className={joinClassNames("editor-pane", className)}
         data-source-line={tracksPosition ? position.line : undefined}
       >
-        <textarea
+        <ContextMenu items={contextItems} label={t("Text editing menu")}>
+          <textarea
           aria-label={resolvedAriaLabel}
           autoCapitalize="off"
           autoCorrect="off"
@@ -286,7 +358,8 @@ export const EditorPane = forwardRef<HTMLTextAreaElement, EditorPaneProps>(
           spellCheck={spellCheck}
           value={value}
           wrap={wrap}
-        />
+          />
+        </ContextMenu>
         {!value && emptyOverlay ? (
           <div className="editor-pane__empty">{emptyOverlay}</div>
         ) : null}

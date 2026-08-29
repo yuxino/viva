@@ -136,6 +136,22 @@ describe("EditorPane", () => {
     expect(onPositionChange).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("Cursor position")).not.toBeInTheDocument();
   });
+
+  it("opens the text menu with the keyboard and selects all text", () => {
+    render(<ControlledEditor />);
+    const editor = screen.getByRole("textbox", {
+      name: "Markdown editor",
+    }) as HTMLTextAreaElement;
+    editor.focus();
+
+    fireEvent.keyDown(editor, { key: "F10", shiftKey: true });
+    const menu = screen.getByRole("menu", { name: "Text editing menu" });
+    expect(menu).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Select all/ }));
+
+    expect(editor.selectionStart).toBe(0);
+    expect(editor.selectionEnd).toBe(5);
+  });
 });
 
 describe("editor text operations", () => {

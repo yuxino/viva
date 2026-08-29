@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const nativeMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
+  revealItemInDir: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -16,12 +17,24 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(),
+  revealItemInDir: nativeMocks.revealItemInDir,
 }));
 
 describe("native quit state protocol", () => {
   beforeEach(() => {
     vi.resetModules();
     nativeMocks.invoke.mockReset();
+    nativeMocks.revealItemInDir.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("reveals a workspace item with the platform path separator", async () => {
+    const native = await import("./native");
+
+    await native.revealWorkspaceItem("C:\\Notes", "drafts/today.md");
+
+    expect(nativeMocks.revealItemInDir).toHaveBeenCalledWith(
+      "C:\\Notes\\drafts\\today.md",
+    );
   });
 
   it("uses one native-issued session and monotonic renderer sequences", async () => {

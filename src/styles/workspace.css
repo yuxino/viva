@@ -163,14 +163,17 @@
 }
 
 .title-bar__dirty {
-  width: 6px;
-  height: 6px;
+  min-height: 1.25rem;
   flex: none;
-  overflow: hidden;
-  color: var(--color-ink);
-  font-size: 0;
-  background: currentColor;
-  border-radius: 50%;
+  padding: 0.12rem 0.45rem;
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  line-height: 1rem;
 }
 
 .app-body {
@@ -405,14 +408,16 @@
 .document-tabs__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .document-tabs__dirty {
-  width: 6px;
-  height: 6px;
   flex: none;
-  overflow: hidden;
-  color: var(--color-ink);
-  font-size: 0;
-  background: currentColor;
-  border-radius: 50%;
+  padding: 0.08rem 0.35rem;
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  line-height: 1rem;
 }
 
 .document-tabs__close {
@@ -536,6 +541,18 @@
 .file-tree__twistie { display: grid; width: 1rem; flex: none; place-items: center; color: var(--color-ink-muted); font-size: 0.65rem; }
 .file-tree__icon { display: grid; flex: none; margin-right: 0.35rem; place-items: center; color: var(--color-ink-muted); }
 .file-tree__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-tree__modified {
+  flex: none;
+  margin-left: auto;
+  padding: 0.03rem 0.3rem;
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-2xs);
+  font-weight: 700;
+  line-height: 0.95rem;
+}
 .file-tree__empty { padding: var(--space-6) var(--space-4); color: var(--color-ink-muted); font-size: var(--font-size-xs); text-align: center; }
 
 .search-panel,

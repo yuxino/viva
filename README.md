@@ -35,6 +35,10 @@ desktop workspace. Files stay ordinary, portable, and on your computer.
 - Inspect a bounded local history, compare saved versions, and load one as a draft.
 - Preview Markdown and MDX without executing document code. View validated local
   workspace images in place, then zoom and pan them in Viva's image viewer.
+- Read fenced code with built-in, language-labeled syntax highlighting for Dart,
+  TypeScript, and other common development languages.
+- Use desktop context menus in the editor, Live blocks, preview, file tree, and
+  document tabs; modified documents remain clearly labeled until saved.
 - Continue lists, tasks, quotes, and indentation naturally while typing; wrap
   bold, italic, and inline code with native shortcuts.
 - Use the complete interface and Viva-owned native menus in English or Simplified

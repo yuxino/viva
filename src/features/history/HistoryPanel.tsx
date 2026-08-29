@@ -283,10 +283,12 @@ export function HistoryLineDiff({
           className="history-diff__summary"
         >
           <span className="history-diff__summary-addition">
-            +{result.summary.additions}
+            <strong>+{result.summary.additions}</strong>
+            {t("Added")}
           </span>
           <span className="history-diff__summary-removal">
-            −{result.summary.removals}
+            <strong>−{result.summary.removals}</strong>
+            {t("Removed")}
           </span>
         </div>
       </header>

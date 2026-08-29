@@ -6,6 +6,7 @@
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "core:menu:default",
     "core:window:allow-close",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-minimize",
@@ -15,6 +16,7 @@
     "dialog:allow-save",
     "opener:allow-default-urls",
     "opener:allow-open-url",
+    "opener:allow-reveal-item-in-dir",
     "window-state:default"
   ]
 }

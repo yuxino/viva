@@ -69,6 +69,9 @@ describe("workspace chrome", () => {
     expect(screen.getByLabelText("Window title")).toHaveAttribute(
       "data-tauri-drag-region",
     );
+    expect(screen.getByLabelText("Unsaved changes")).toHaveTextContent(
+      "Modified",
+    );
     expect(screen.getByLabelText("Document status")).toHaveTextContent(
       "Ln 3, Col 5",
     );

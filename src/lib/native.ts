@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
   DocumentSnapshot,
   FileRevision,
@@ -253,6 +253,20 @@ export async function openExternalUrl(href: string): Promise<void> {
     throw new Error("Viva only opens web and email links.");
   }
   await openUrl(url.toString());
+}
+
+export function revealWorkspaceItem(
+  workspaceRoot: string,
+  relativePath: string,
+): Promise<void> {
+  const separator = workspaceRoot.includes("\\") ? "\\" : "/";
+  const normalizedRelativePath = relativePath
+    .split(/[\\/]+/u)
+    .filter(Boolean)
+    .join(separator);
+  return revealItemInDir(
+    `${workspaceRoot.replace(/[\\/]+$/u, "")}${separator}${normalizedRelativePath}`,
+  );
 }
 
 type NativeErrorTranslator = (key: TranslationKey) => string;

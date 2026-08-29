@@ -67,6 +67,11 @@
   --color-focus: #1c1c1a;
   --color-selection: #d8d8d0;
   --color-code-bg: #f2f2ee;
+  --syntax-comment: #7b7b73;
+  --syntax-keyword: #7b3f64;
+  --syntax-value: #2f6551;
+  --syntax-number: #855927;
+  --syntax-property: #315e78;
   --color-inverse: #fcfcf9;
   --color-overlay: rgb(24 24 22 / 28%);
   --color-scrim: rgb(24 24 22 / 46%);
@@ -111,6 +116,11 @@
   --color-focus: #f1f1ec;
   --color-selection: #4b4b45;
   --color-code-bg: #1b1b1a;
+  --syntax-comment: #8c8c84;
+  --syntax-keyword: #d9a1c1;
+  --syntax-value: #a8ccb2;
+  --syntax-number: #d7b27c;
+  --syntax-property: #9fc6dc;
   --color-inverse: #1c1c1a;
   --color-overlay: rgb(0 0 0 / 36%);
   --color-scrim: rgb(0 0 0 / 58%);
@@ -145,6 +155,11 @@
     --color-focus: #f1f1ec;
     --color-selection: #4b4b45;
     --color-code-bg: #1b1b1a;
+    --syntax-comment: #8c8c84;
+    --syntax-keyword: #d9a1c1;
+    --syntax-value: #a8ccb2;
+    --syntax-number: #d7b27c;
+    --syntax-property: #9fc6dc;
     --color-inverse: #1c1c1a;
     --color-overlay: rgb(0 0 0 / 36%);
     --color-scrim: rgb(0 0 0 / 58%);

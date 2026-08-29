@@ -4,6 +4,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { ContextMenu, type MenuItem } from "../../components/ui";
 import { useI18n } from "../../i18n";
 
 export interface DocumentTabItem {
@@ -18,6 +19,8 @@ export interface DocumentTabsProps {
   activeId: string | null;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
+  onSave?: (id: string) => void;
+  onSaveAs?: (id: string) => void;
   closeIcon?: ReactNode;
   ariaLabel?: string;
   className?: string;
@@ -32,6 +35,8 @@ export function DocumentTabs({
   activeId,
   onActivate,
   onClose,
+  onSave,
+  onSaveAs,
   closeIcon = "×",
   ariaLabel,
   className,
@@ -95,15 +100,35 @@ export function DocumentTabs({
     >
       {tabs.map((tab, index) => {
         const active = tab.id === selectedId;
+        const contextItems: MenuItem[] = [
+          {
+            disabled: !tab.dirty || !onSave,
+            id: "save",
+            label: t("Save"),
+            onSelect: () => onSave?.(tab.id),
+          },
+          {
+            disabled: !onSaveAs,
+            id: "save-as",
+            label: t("Save as…"),
+            onSelect: () => onSaveAs?.(tab.id),
+          },
+          {
+            id: "close",
+            label: t("Close"),
+            onSelect: () => onClose(tab.id),
+            separatorBefore: true,
+          },
+        ];
         return (
-          <div
-            className={joinClassNames(
-              "document-tabs__item",
-              active && "is-active",
-              tab.dirty && "is-dirty",
-            )}
-            key={tab.id}
-          >
+          <ContextMenu items={contextItems} key={tab.id} label={t("Tab menu")}>
+            <div
+              className={joinClassNames(
+                "document-tabs__item",
+                active && "is-active",
+                tab.dirty && "is-dirty",
+              )}
+            >
             <button
               aria-selected={active}
               className="document-tabs__tab"
@@ -124,9 +149,8 @@ export function DocumentTabs({
                 <span
                   aria-label={t("Unsaved changes")}
                   className="document-tabs__dirty"
-                  role="img"
                 >
-                  ●
+                  {t("Modified")}
                 </span>
               ) : null}
             </button>
@@ -142,7 +166,8 @@ export function DocumentTabs({
             >
               <span aria-hidden="true">{closeIcon}</span>
             </button>
-          </div>
+            </div>
+          </ContextMenu>
         );
       })}
     </div>

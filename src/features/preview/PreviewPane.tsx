@@ -8,7 +8,9 @@ import {
   type ReactNode,
   type UIEvent,
 } from "react";
+import { ContextMenu } from "../../components/ui";
 import { useI18n } from "../../i18n";
+import { writeClipboardText } from "../../lib/clipboard";
 import {
   renderMarkdown,
   type RenderedMarkdown,
@@ -349,13 +351,31 @@ export function PreviewPane({
       aria-label={ariaLabel ?? t("Markdown preview")}
       className={joinClassNames("preview-pane", className)}
     >
-      <div
-        className="preview-pane__scroller viva-scroll-region"
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        onScroll={handleScroll}
-        ref={scrollerRef}
+      <ContextMenu
+        items={[
+          {
+            id: "copy",
+            label: t("Copy"),
+            onSelect: () => {
+              const selection = window.getSelection()?.toString() ?? "";
+              if (selection) void writeClipboardText(selection);
+            },
+          },
+          {
+            id: "copy-markdown",
+            label: t("Copy Markdown"),
+            onSelect: () => void writeClipboardText(source),
+          },
+        ]}
+        label={t("Preview menu")}
       >
+        <div
+          className="preview-pane__scroller viva-scroll-region"
+          onClick={handleClick}
+          onKeyDown={handleKeyDown}
+          onScroll={handleScroll}
+          ref={scrollerRef}
+        >
         {rendered.safeMdx ? (
           <div className="preview-pane__mdx-notice" role="status">
             {t(
@@ -381,7 +401,8 @@ export function PreviewPane({
             {emptyState ?? t("Nothing to preview")}
           </div>
         )}
-      </div>
+        </div>
+      </ContextMenu>
     </section>
   );
 }

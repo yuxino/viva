@@ -6,8 +6,10 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { ContextMenu, type MenuItem } from "../../components/ui";
 import type { FileTreeNode } from "../../domain/workspace";
 import { useI18n } from "../../i18n";
+import { writeClipboardText } from "../../lib/clipboard";
 
 interface VisibleTreeItem {
   node: FileTreeNode;
@@ -24,8 +26,10 @@ export interface FileTreeProps {
   nodes: readonly FileTreeNode[];
   expandedPaths: readonly string[];
   activePath?: string | null;
+  modifiedPaths?: ReadonlySet<string>;
   onToggle: (path: string) => void;
   onOpen: (path: string) => void;
+  onReveal?: (path: string) => void;
   renderIcon?: (node: FileTreeNode, state: FileTreeIconState) => ReactNode;
   ariaLabel?: string;
   className?: string;
@@ -65,8 +69,10 @@ export function FileTree({
   nodes,
   expandedPaths,
   activePath = null,
+  modifiedPaths = new Set<string>(),
   onToggle,
   onOpen,
+  onReveal,
   renderIcon,
   ariaLabel,
   className,
@@ -197,11 +203,32 @@ export function FileTree({
       const expanded =
         node.kind === "directory" && expandedSet.has(node.relativePath);
       const active = node.kind !== "directory" && activePath === node.relativePath;
+      const modified = node.kind === "file" && modifiedPaths.has(node.relativePath);
       const item: VisibleTreeItem = { node, level, parentPath };
+      const contextItems: MenuItem[] = [
+        {
+          id: "open",
+          label: t("Open"),
+          onSelect: () => activateItem(item),
+        },
+        {
+          id: "copy-path",
+          label: t("Copy relative path"),
+          onSelect: () => void writeClipboardText(node.relativePath),
+          separatorBefore: true,
+        },
+        {
+          disabled: !onReveal,
+          id: "reveal",
+          label: t("Show in folder"),
+          onSelect: () => onReveal?.(node.relativePath),
+        },
+      ];
 
       return (
         <li className="file-tree__node" key={node.relativePath} role="none">
-          <button
+          <ContextMenu items={contextItems} label={t("File menu")}>
+            <button
             aria-expanded={node.kind === "directory" ? expanded : undefined}
             aria-level={level}
             aria-selected={active}
@@ -209,6 +236,7 @@ export function FileTree({
               "file-tree__item",
               `file-tree__item--${node.kind}`,
               active && "is-active",
+              modified && "is-modified",
               expanded && "is-expanded",
             )}
             onClick={() => activateItem(item)}
@@ -222,17 +250,26 @@ export function FileTree({
             tabIndex={rovingFocusPath === node.relativePath ? 0 : -1}
             title={node.relativePath}
             type="button"
-          >
-            <span aria-hidden="true" className="file-tree__twistie">
-              {node.kind === "directory" ? (expanded ? "▾" : "▸") : ""}
-            </span>
-            {renderIcon ? (
-              <span aria-hidden="true" className="file-tree__icon">
-                {renderIcon(node, { active, expanded })}
+            >
+              <span aria-hidden="true" className="file-tree__twistie">
+                {node.kind === "directory" ? (expanded ? "▾" : "▸") : ""}
               </span>
-            ) : null}
-            <span className="file-tree__label">{node.name}</span>
-          </button>
+              {renderIcon ? (
+                <span aria-hidden="true" className="file-tree__icon">
+                  {renderIcon(node, { active, expanded })}
+                </span>
+              ) : null}
+              <span className="file-tree__label">{node.name}</span>
+              {modified ? (
+                <span
+                  aria-label={t("Modified")}
+                  className="file-tree__modified"
+                >
+                  {t("Modified")}
+                </span>
+              ) : null}
+            </button>
+          </ContextMenu>
           {node.kind === "directory" && expanded ? (
             <ul className="file-tree__group" role="group">
               {renderNodes(node.children, level + 1, node.relativePath)}

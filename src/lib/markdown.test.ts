@@ -106,6 +106,40 @@ describe("renderMarkdown", () => {
     expect(checkboxes[1]?.checked).toBe(false);
     expect([...checkboxes].every((checkbox) => checkbox.disabled)).toBe(true);
   });
+
+  it("highlights fenced Dart and TypeScript with visible language labels", () => {
+    const rendered = renderMarkdown(
+      [
+        "```dart",
+        "final answer = 42;",
+        "```",
+        "",
+        "```ts",
+        "const greeting: string = 'hello';",
+        "```",
+      ].join("\n"),
+    );
+    const template = document.createElement("template");
+    template.innerHTML = rendered.html;
+
+    expect(
+      template.content.querySelector('[data-language="dart"]')?.textContent,
+    ).toContain("Dart");
+    expect(
+      template.content.querySelector('[data-language="typescript"]')?.textContent,
+    ).toContain("TypeScript");
+    expect(template.content.querySelectorAll(".hljs-keyword").length).toBeGreaterThan(1);
+  });
+
+  it("renders unknown fenced languages as escaped plaintext", () => {
+    const rendered = renderMarkdown(
+      "```unknown-lang\n<script>alert('no')</script>\n```",
+    );
+
+    expect(rendered.html).toContain("unknown-lang");
+    expect(rendered.html).toContain("language-plaintext");
+    expect(rendered.html).not.toContain("<script>");
+  });
 });
 
 describe("countWords", () => {

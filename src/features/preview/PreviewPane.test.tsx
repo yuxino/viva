@@ -25,6 +25,15 @@ describe("PreviewPane", () => {
     expect(onSourceLineSelect).toHaveBeenCalledWith(1);
   });
 
+  it("offers selection and Markdown copy actions on right click", () => {
+    render(<PreviewPane source="# Preview" />);
+
+    fireEvent.contextMenu(screen.getByRole("heading", { name: "Preview" }));
+    expect(screen.getByRole("menu", { name: "Preview menu" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Copy" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Copy Markdown" })).toBeVisible();
+  });
+
   it("labels a bounded live preview without hiding the editor source", () => {
     render(
       <PreviewPane

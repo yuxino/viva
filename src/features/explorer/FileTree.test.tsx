@@ -60,4 +60,39 @@ describe("FileTree", () => {
     fireEvent.keyDown(child, { key: "ArrowLeft" });
     expect(screen.getByRole("treeitem", { name: "Notes" })).toHaveFocus();
   });
+
+  it("makes modified documents visible in the file tree", () => {
+    render(
+      <FileTree
+        expandedPaths={[]}
+        modifiedPaths={new Set(["README.md"])}
+        nodes={nodes}
+        onOpen={vi.fn()}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Modified")).toBeVisible();
+    expect(screen.getByRole("treeitem", { name: /README\.md.*Modified/i }))
+      .toBeVisible();
+  });
+
+  it("opens file actions from right click", () => {
+    const onReveal = vi.fn();
+    render(
+      <FileTree
+        expandedPaths={[]}
+        nodes={nodes}
+        onOpen={vi.fn()}
+        onReveal={onReveal}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("treeitem", { name: "README.md" }));
+    expect(screen.getByRole("menu", { name: "File menu" })).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show in folder" }));
+
+    expect(onReveal).toHaveBeenCalledWith("README.md");
+  });
 });

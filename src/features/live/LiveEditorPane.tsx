@@ -7,7 +7,9 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
+import { ContextMenu } from "../../components/ui";
 import { useI18n } from "../../i18n";
+import { writeClipboardText } from "../../lib/clipboard";
 import {
   renderMarkdownDocument,
   type MarkdownImageReference,
@@ -608,28 +610,44 @@ export function LiveEditorPane({
                   />
                 </div>
               ) : (
-                <div
-                  aria-label={editBlockHint}
-                  className={`live-editor-pane__block markdown-body${block.html ? "" : " is-source-only"}`}
-                  dangerouslySetInnerHTML={{
-                    __html:
-                      block.html ||
-                      `<pre>${block.raw
-                        .replaceAll("&", "&amp;")
-                        .replaceAll("<", "&lt;")
-                        .replaceAll(">", "&gt;")}</pre>`,
-                  }}
+                <ContextMenu
+                  items={[
+                    {
+                      id: "edit-block",
+                      label: t("Edit block"),
+                      onSelect: () => activate(block, index),
+                    },
+                    {
+                      id: "copy-markdown",
+                      label: t("Copy Markdown"),
+                      onSelect: () => void writeClipboardText(block.raw),
+                    },
+                  ]}
                   key={`${block.start}:${index}`}
-                  onClick={(event) => handleRenderedClick(event, block, index)}
-                  onKeyDown={(event) => handleBlockKeyDown(event, block, index)}
-                  ref={(element) => {
-                    if (element) blockRefs.current.set(index, element);
-                    else blockRefs.current.delete(index);
-                  }}
-                  role="group"
-                  tabIndex={0}
-                  title={editBlockHint}
-                />
+                  label={t("Live block menu")}
+                >
+                  <div
+                    aria-label={editBlockHint}
+                    className={`live-editor-pane__block markdown-body${block.html ? "" : " is-source-only"}`}
+                    dangerouslySetInnerHTML={{
+                      __html:
+                        block.html ||
+                        `<pre>${block.raw
+                          .replaceAll("&", "&amp;")
+                          .replaceAll("<", "&lt;")
+                          .replaceAll(">", "&gt;")}</pre>`,
+                    }}
+                    onClick={(event) => handleRenderedClick(event, block, index)}
+                    onKeyDown={(event) => handleBlockKeyDown(event, block, index)}
+                    ref={(element) => {
+                      if (element) blockRefs.current.set(index, element);
+                      else blockRefs.current.delete(index);
+                    }}
+                    role="group"
+                    tabIndex={0}
+                    title={editBlockHint}
+                  />
+                </ContextMenu>
               ),
             )
           ) : (

@@ -37,6 +37,20 @@ describe("LiveEditorPane", () => {
     expect(screen.getByText("A calm paragraph.")).toBeVisible();
   });
 
+  it("opens a rendered block for editing from its context menu", () => {
+    render(<EditableFixture />);
+    const block = screen.getAllByRole("group")[0];
+    expect(block).toBeDefined();
+
+    fireEvent.contextMenu(block!);
+    expect(screen.getByRole("menu", { name: "Live block menu" })).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit block" }));
+
+    expect(
+      screen.getByRole("textbox", { name: "Editing block from line 1" }),
+    ).toBeVisible();
+  });
+
   it("places the caret in the clicked occurrence of repeated rendered text", () => {
     render(
       <LiveEditorPane

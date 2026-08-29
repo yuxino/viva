@@ -5,6 +5,8 @@ export type {
   CommandPaletteItem,
   CommandPaletteProps,
 } from "./CommandPalette";
+export { ContextMenu } from "./ContextMenu";
+export type { ContextMenuProps } from "./ContextMenu";
 export { Dialog } from "./Dialog";
 export type {
   DialogCloseReason,

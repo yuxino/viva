@@ -74,7 +74,7 @@ describe("HistoryPanel", () => {
     );
     expect(
       screen.getByLabelText("Changes from this version to the current document"),
-    ).toHaveTextContent("+1");
+    ).toHaveTextContent("+1Added");
   });
 
   it("renders loading, empty, and error states", () => {

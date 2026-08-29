@@ -1,5 +1,6 @@
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
+import { highlightCode } from "./syntaxHighlight";
 
 export interface OutlineItem {
   id: string;
@@ -227,6 +228,21 @@ markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => 
   token?.attrSet("rel", "noreferrer");
   token?.attrJoin("class", "markdown-link");
   return renderer.renderToken(tokens, index, options);
+};
+
+markdown.renderer.rules.fence = (tokens, index) => {
+  const token = tokens[index];
+  const highlighted = highlightCode(token?.content ?? "", token?.info ?? "");
+  const label = highlighted.label
+    ? `<figcaption class="markdown-code-block__language">${markdown.utils.escapeHtml(highlighted.label)}</figcaption>`
+    : "";
+
+  return [
+    `<figure class="markdown-code-block"${highlighted.language ? ` data-language="${highlighted.language}"` : ""}>`,
+    label,
+    `<pre><code class="${highlighted.className}">${highlighted.html}</code></pre>`,
+    "</figure>",
+  ].join("");
 };
 
 export function renderMarkdown(

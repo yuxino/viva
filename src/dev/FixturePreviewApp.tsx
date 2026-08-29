@@ -101,9 +101,19 @@ export function FixturePreviewApp() {
   const tabs = useMemo(
     () =>
       Object.keys(documents).map((path) => ({
+        dirty: documents[path] !== initialDocuments[path],
         id: path,
         label: path,
       })),
+    [documents],
+  );
+  const modifiedPaths = useMemo(
+    () =>
+      new Set(
+        Object.keys(documents).filter(
+          (path) => documents[path] !== initialDocuments[path],
+        ),
+      ),
     [documents],
   );
 
@@ -155,6 +165,7 @@ export function FixturePreviewApp() {
             <SidebarIcon size={16} />
           </IconButton>
         }
+        dirty={modifiedPaths.has(activePath)}
         subtitle="Field Notes"
         title={
           <button className="title-bar__command" type="button">
@@ -196,6 +207,7 @@ export function FixturePreviewApp() {
             <FileTree
               activePath={activePath}
               expandedPaths={[]}
+              modifiedPaths={modifiedPaths}
               nodes={tree}
               onOpen={(path) => {
                 if (documents[path]) setActivePath(path);

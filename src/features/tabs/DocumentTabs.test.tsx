@@ -24,8 +24,34 @@ describe("DocumentTabs", () => {
     expect(onActivate).toHaveBeenCalledWith("two");
     expect(screen.getByRole("tab", { name: "two.md" })).toHaveFocus();
     expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.getByLabelText("Unsaved changes")).toHaveTextContent(
+      "Modified",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Close one.md" }));
+    expect(onClose).toHaveBeenCalledWith("one");
+  });
+
+  it("offers save and close actions from a tab context menu", () => {
+    const onClose = vi.fn();
+    const onSave = vi.fn();
+    render(
+      <DocumentTabs
+        activeId="one"
+        onActivate={vi.fn()}
+        onClose={onClose}
+        onSave={onSave}
+        tabs={[{ id: "one", label: "one.md", dirty: true }]}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /one\.md/i }));
+    expect(screen.getByRole("menu", { name: "Tab menu" })).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Save" }));
+    expect(onSave).toHaveBeenCalledWith("one");
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /one\.md/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Close" }));
     expect(onClose).toHaveBeenCalledWith("one");
   });
 });

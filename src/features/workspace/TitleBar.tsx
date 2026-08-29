@@ -100,7 +100,7 @@ export function TitleBar({
         </span>
         {dirty ? (
           <span aria-label={t("Unsaved changes")} className="title-bar__dirty">
-            ●
+            {t("Modified")}
           </span>
         ) : null}
         {subtitle ? (
