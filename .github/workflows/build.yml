@@ -25,9 +25,12 @@ jobs:
           version: 11.24.0
           runtime: node@24.20.0
           cache: true
-          require-lockfile: true
+          install: false
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Test frontend
         run: pnpm test
