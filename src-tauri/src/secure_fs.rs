@@ -71,16 +71,11 @@ where
 {
     use std::mem::size_of;
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
     use std::path::{Component, Path};
     use windows_sys::Wdk::Storage::FileSystem::{
         FILE_RENAME_INFORMATION, FileRenameInformation, NtSetInformationFile,
     };
-    use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, RtlNtStatusToDosError};
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        FILE_TRAVERSE, ReOpenFile,
-    };
+    use windows_sys::Win32::Foundation::RtlNtStatusToDosError;
     use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
     let destination_path = Path::new(destination_name);
@@ -124,29 +119,15 @@ where
     let mut buffer = vec![0_usize; buffer_words];
     let information = buffer.as_mut_ptr().cast::<FILE_RENAME_INFORMATION>();
 
-    // cap-std intentionally pins directories against renames, but its normal
-    // read handle does not request FILE_TRAVERSE. Reopen the same kernel file
-    // object with the exact RootDirectory rights recommended by Microsoft;
-    // this does not resolve or trust an ambient path.
-    let root_handle = unsafe {
-        ReOpenFile(
-            destination_directory.as_raw_handle() as _,
-            FILE_TRAVERSE | FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            FILE_FLAG_BACKUP_SEMANTICS,
-        )
-    };
-    if root_handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: ReOpenFile returned a new owned kernel handle on success.
-    let root_handle = unsafe { OwnedHandle::from_raw_handle(root_handle as _) };
-
     // SAFETY: the usize-backed buffer is aligned and large enough for the
     // fixed header plus the complete UTF-16 destination name.
     unsafe {
         (*information).Anonymous.ReplaceIfExists = false;
-        (*information).RootDirectory = root_handle.as_raw_handle() as _;
+        // Keep the rename capability-bound by resolving the leaf directly
+        // against the already-open destination directory. ReOpenFile cannot
+        // add traversal rights to cap-std's pinned directory handles on
+        // Windows, while NtSetInformationFile accepts the original handle.
+        (*information).RootDirectory = destination_directory.as_raw_handle() as _;
         (*information).FileNameLength = file_name_length;
         std::ptr::copy_nonoverlapping(
             wide_name.as_ptr(),
@@ -156,7 +137,7 @@ where
     }
 
     let mut io_status = IO_STATUS_BLOCK::default();
-    // SAFETY: both handles stay live for the synchronous call and
+    // SAFETY: both capability handles stay live for the synchronous call and
     // `information` points to the initialized, aligned buffer described by
     // `buffer_bytes`. FileRenameInformation accepts a destination path
     // relative to RootDirectory and honors ReplaceIfExists=false atomically.
