@@ -71,10 +71,17 @@ where
 {
     use std::mem::size_of;
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
     use std::path::{Component, Path};
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_RENAME_INFO, FileRenameInfo, SetFileInformationByHandle,
+    use windows_sys::Wdk::Storage::FileSystem::{
+        FILE_RENAME_INFORMATION, FileRenameInformation, NtSetInformationFile,
     };
+    use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, RtlNtStatusToDosError};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FILE_TRAVERSE, ReOpenFile,
+    };
+    use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
     let destination_path = Path::new(destination_name);
     let mut components = destination_path.components();
@@ -100,11 +107,11 @@ where
         .ok_or_else(|| io::Error::other("destination name length overflow"))?;
     let file_name_length = u32::try_from(name_bytes)
         .map_err(|_| io::Error::other("destination name length overflow"))?;
-    // Windows requires the buffer to include the complete fixed-size
-    // FILE_RENAME_INFO structure in addition to the variable UTF-16 name.
-    // Using only the FileName offset produces ERROR_INVALID_PARAMETER on
-    // 64-bit Windows even though the copied bytes themselves fit.
-    let buffer_bytes = size_of::<FILE_RENAME_INFO>()
+    // NtSetInformationFile requires the complete fixed-size structure plus
+    // the variable UTF-16 name. The extra fixed-size FileName element and
+    // trailing padding are deliberately retained, as required by the Windows
+    // driver contract.
+    let buffer_bytes = size_of::<FILE_RENAME_INFORMATION>()
         .checked_add(name_bytes)
         .ok_or_else(|| io::Error::other("rename buffer length overflow"))?;
     let buffer_length = u32::try_from(buffer_bytes)
@@ -115,13 +122,31 @@ where
         .ok_or_else(|| io::Error::other("rename buffer length overflow"))?
         / word_bytes;
     let mut buffer = vec![0_usize; buffer_words];
-    let information = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+    let information = buffer.as_mut_ptr().cast::<FILE_RENAME_INFORMATION>();
+
+    // cap-std intentionally pins directories against renames, but its normal
+    // read handle does not request FILE_TRAVERSE. Reopen the same kernel file
+    // object with the exact RootDirectory rights recommended by Microsoft;
+    // this does not resolve or trust an ambient path.
+    let root_handle = unsafe {
+        ReOpenFile(
+            destination_directory.as_raw_handle() as _,
+            FILE_TRAVERSE | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_FLAG_BACKUP_SEMANTICS,
+        )
+    };
+    if root_handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: ReOpenFile returned a new owned kernel handle on success.
+    let root_handle = unsafe { OwnedHandle::from_raw_handle(root_handle as _) };
 
     // SAFETY: the usize-backed buffer is aligned and large enough for the
     // fixed header plus the complete UTF-16 destination name.
     unsafe {
         (*information).Anonymous.ReplaceIfExists = false;
-        (*information).RootDirectory = destination_directory.as_raw_handle() as _;
+        (*information).RootDirectory = root_handle.as_raw_handle() as _;
         (*information).FileNameLength = file_name_length;
         std::ptr::copy_nonoverlapping(
             wide_name.as_ptr(),
@@ -130,18 +155,25 @@ where
         );
     }
 
-    // SAFETY: both handles stay live for the call and `information` points to
-    // the initialized buffer described by `buffer_bytes`.
-    let succeeded = unsafe {
-        SetFileInformationByHandle(
+    let mut io_status = IO_STATUS_BLOCK::default();
+    // SAFETY: both handles stay live for the synchronous call and
+    // `information` points to the initialized, aligned buffer described by
+    // `buffer_bytes`. FileRenameInformation accepts a destination path
+    // relative to RootDirectory and honors ReplaceIfExists=false atomically.
+    let status = unsafe {
+        NtSetInformationFile(
             source.as_raw_handle() as _,
-            FileRenameInfo,
+            &mut io_status,
             information.cast(),
             buffer_length,
+            FileRenameInformation,
         )
     };
-    if succeeded == 0 {
-        Err(io::Error::last_os_error())
+    if status < 0 {
+        // SAFETY: every NTSTATUS returned by NtSetInformationFile is a valid
+        // input to the system's NTSTATUS-to-Win32 error mapper.
+        let error = unsafe { RtlNtStatusToDosError(status) };
+        Err(io::Error::from_raw_os_error(error as i32))
     } else {
         Ok(())
     }
