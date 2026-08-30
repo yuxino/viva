@@ -179,6 +179,72 @@ where
     }
 }
 
+#[cfg(all(test, target_os = "windows"))]
+mod windows_rename_diagnostic {
+    use super::rename_open_handle_noclobber;
+    use cap_std::ambient_authority;
+    use cap_std::fs::{Dir, OpenOptions, OpenOptionsExt};
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, ReOpenFile, SYNCHRONIZE,
+    };
+
+    fn attempt(dir: &Dir, source_name: &str, destination_name: &str, share: u32) -> String {
+        dir.write(source_name, b"diagnostic").unwrap();
+        let mut options = OpenOptions::new();
+        options
+            .read(true)
+            .access_mode(DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE)
+            .share_mode(share)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+        let source = dir.open_with(source_name, &options).unwrap();
+        format!(
+            "{:?}",
+            rename_open_handle_noclobber(&source, dir, destination_name)
+        )
+    }
+
+    #[test]
+    fn reports_root_reopen_and_source_share_requirements() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = Dir::open_ambient_dir(temp.path(), ambient_authority()).unwrap();
+
+        let reopened = unsafe {
+            ReOpenFile(
+                std::os::windows::io::AsRawHandle::as_raw_handle(&dir) as _,
+                FILE_TRAVERSE | FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_FLAG_BACKUP_SEMANTICS,
+            )
+        };
+        let root_result = if reopened == INVALID_HANDLE_VALUE {
+            format!("Err({:?})", std::io::Error::last_os_error())
+        } else {
+            let _owned = unsafe { OwnedHandle::from_raw_handle(reopened as _) };
+            "Ok".to_owned()
+        };
+
+        let without_delete_share = attempt(
+            &dir,
+            "without-delete-share.md",
+            "without-delete-share-renamed.md",
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+        );
+        let with_delete_share = attempt(
+            &dir,
+            "with-delete-share.md",
+            "with-delete-share-renamed.md",
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        );
+
+        panic!(
+            "Windows rename diagnostic: root_reopen={root_result}; source_without_delete_share={without_delete_share}; source_with_delete_share={with_delete_share}"
+        );
+    }
+}
+
 #[cfg(all(not(unix), not(target_os = "windows")))]
 pub(crate) fn stable_handle_identity<H>(_handle: &H) -> io::Result<StableFileIdentity> {
     Err(io::Error::new(
