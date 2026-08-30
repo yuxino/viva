@@ -396,6 +396,8 @@ export const EditorPane = forwardRef<HTMLTextAreaElement, EditorPaneProps>(
 
     function handleChange(event: ChangeEvent<HTMLTextAreaElement>): void {
       const textarea = event.currentTarget;
+      // Chromium normalizes textarea values to LF. The native document contract
+      // keeps the on-disk newline policy; jsdom is not evidence for this behavior.
       onChange(textarea.value);
       const normalized = normalizeSelection(textarea.value, {
         start: textarea.selectionStart,

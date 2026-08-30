@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "../../i18n";
+import type { LineEnding } from "../../domain/workspace";
 import { boundTextPrefix } from "../../lib/textBounds";
 import {
   createHistoryLineDiff,
@@ -21,6 +22,7 @@ export interface HistoryEntry {
   createdAt?: string;
   description?: string;
   content?: string;
+  lineEnding?: LineEnding;
 }
 
 export interface HistoryListProps {

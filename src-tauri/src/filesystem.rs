@@ -4,9 +4,10 @@ use crate::models::{
     CommandError, CommandResult, CreateDocumentRequest, CreateWorkspaceDirectoryRequest,
     DocumentPathRequest, DocumentSnapshot, DuplicateWorkspaceEntryRequest, ErrorCode,
     ExpectedDocumentRevision, FileRevision, HistoryWarningCode, InspectSaveDestinationRequest,
-    OpenWorkspaceRequest, RenameWorkspaceEntryRequest, SaveDestinationState, SaveDocumentAsRequest,
-    SearchMatch, SearchWorkspaceRequest, TrashWorkspaceEntryRequest, WorkspaceEntry,
-    WorkspaceEntryKind, WorkspaceEntryMutation, WorkspaceTree, WriteDocumentRequest,
+    LineEnding, OpenWorkspaceRequest, RenameWorkspaceEntryRequest, SaveDestinationState,
+    SaveDocumentAsRequest, SearchMatch, SearchWorkspaceRequest, TrashWorkspaceEntryRequest,
+    WorkspaceEntry, WorkspaceEntryKind, WorkspaceEntryMutation, WorkspaceTree,
+    WriteDocumentRequest,
 };
 use crate::runtime::run_blocking;
 #[cfg(target_os = "windows")]
@@ -91,6 +92,7 @@ impl StableEntryHandle {
 struct WriteOutcome {
     snapshot: DocumentSnapshot,
     previous_content: Option<String>,
+    persisted_content: String,
 }
 
 struct TreeBudget {
@@ -196,7 +198,7 @@ fn write_document_sync(
 }
 
 fn write_document_core(request: WriteDocumentRequest) -> CommandResult<WriteOutcome> {
-    enforce_content_limit(&request.content)?;
+    let persisted_content = encode_content_with_limit(&request.content, request.line_ending)?;
 
     let root = canonical_workspace(&request.workspace_root)?;
     let resolved = resolve_existing_document(&root, &request.relative_path)?;
@@ -220,7 +222,7 @@ fn write_document_core(request: WriteDocumentRequest) -> CommandResult<WriteOutc
         CommandError::new(ErrorCode::InvalidPath, "The document has no parent folder.")
     })?;
     let mut temporary = temporary_file(parent, Some(current_metadata.permissions()))?;
-    write_and_flush(&mut temporary, request.content.as_bytes())?;
+    write_and_flush(&mut temporary, persisted_content.as_bytes())?;
 
     ensure_no_symlink_components(&root, Path::new(&resolved.relative_path))?;
     if read_revision_limited(&resolved.absolute_path)? != request.expected_revision {
@@ -235,18 +237,20 @@ fn write_document_core(request: WriteDocumentRequest) -> CommandResult<WriteOutc
     let revision = revision_from_metadata_and_hash(
         &fs::metadata(&resolved.absolute_path)
             .map_err(|error| io_error("Could not inspect the saved document", error))?,
-        sha256_hex(request.content.as_bytes()),
+        sha256_hex(persisted_content.as_bytes()),
     )?;
 
     Ok(WriteOutcome {
         snapshot: DocumentSnapshot {
             relative_path: resolved.relative_path,
             name: document_name(&resolved.absolute_path)?,
-            content: request.content,
+            content: LineEnding::normalize(&request.content),
+            line_ending: request.line_ending,
             revision,
             history_warning_code: None,
         },
         previous_content,
+        persisted_content,
     })
 }
 
@@ -274,7 +278,8 @@ fn create_document_sync(
 fn create_document_core(request: CreateDocumentRequest) -> CommandResult<DocumentSnapshot> {
     let root = canonical_workspace(&request.workspace_root)?;
     let content = request.content.unwrap_or_default();
-    create_new_document(&root, &request.relative_path, content)
+    let line_ending = LineEnding::detect(&content);
+    create_new_document(&root, &request.relative_path, content, line_ending)
 }
 
 #[tauri::command]
@@ -944,20 +949,20 @@ fn save_document_as_sync(
 }
 
 fn save_document_as_core(request: SaveDocumentAsRequest) -> CommandResult<WriteOutcome> {
-    enforce_content_limit(&request.content)?;
+    let persisted_content = encode_content_with_limit(&request.content, request.line_ending)?;
 
     let root = canonical_workspace(&request.workspace_root)?;
     let destination = resolve_save_destination(&root, &request.destination_path)?;
     let previous_content = match request.expected_destination_revision {
         None => {
             ensure_target_absent(&destination.target)?;
-            persist_new_document(&destination.target, &request.content)?;
+            persist_new_document(&destination.target, &persisted_content)?;
             None
         }
         Some(expected_revision) => Some(replace_save_destination(
             &root,
             &destination.target,
-            &request.content,
+            &persisted_content,
             &expected_revision,
         )?),
     };
@@ -965,18 +970,20 @@ fn save_document_as_core(request: SaveDocumentAsRequest) -> CommandResult<WriteO
     let revision = revision_from_metadata_and_hash(
         &fs::metadata(&destination.target)
             .map_err(|error| io_error("Could not inspect the saved document", error))?,
-        sha256_hex(request.content.as_bytes()),
+        sha256_hex(persisted_content.as_bytes()),
     )?;
 
     Ok(WriteOutcome {
         snapshot: DocumentSnapshot {
             relative_path: destination.relative_path,
             name: document_name(&destination.target)?,
-            content: request.content,
+            content: LineEnding::normalize(&request.content),
+            line_ending: request.line_ending,
             revision,
             history_warning_code: None,
         },
         previous_content,
+        persisted_content,
     })
 }
 
@@ -1042,11 +1049,12 @@ fn record_snapshot_best_effort(
     requested_workspace_root: &str,
     snapshot: &DocumentSnapshot,
 ) -> bool {
+    let persisted_content = snapshot.line_ending.encode(&snapshot.content);
     record_content_best_effort(
         app,
         requested_workspace_root,
         &snapshot.relative_path,
-        &snapshot.content,
+        &persisted_content,
     )
 }
 
@@ -1062,7 +1070,7 @@ fn record_write_outcome_best_effort(
     if let Some(previous_content) = outcome.previous_content.as_deref() {
         contents.push(previous_content);
     }
-    contents.push(outcome.snapshot.content.as_str());
+    contents.push(outcome.persisted_content.as_str());
     history::record_document_versions_best_effort(
         app,
         &workspace_root,
@@ -1076,7 +1084,7 @@ fn for_each_write_version(outcome: &WriteOutcome, mut record: impl FnMut(&str)) 
     if let Some(previous_content) = outcome.previous_content.as_deref() {
         record(previous_content);
     }
-    record(&outcome.snapshot.content);
+    record(&outcome.persisted_content);
 }
 
 fn record_content_best_effort(
@@ -3087,8 +3095,9 @@ fn create_new_document(
     root: &Path,
     relative: &str,
     content: String,
+    line_ending: LineEnding,
 ) -> CommandResult<DocumentSnapshot> {
-    enforce_content_limit(&content)?;
+    let persisted_content = encode_content_with_limit(&content, line_ending)?;
     let clean_relative = validate_relative_document(relative)?;
     let parent_relative = clean_relative.parent().unwrap_or_else(|| Path::new(""));
     ensure_no_symlink_components(root, parent_relative)?;
@@ -3109,17 +3118,18 @@ fn create_new_document(
     validate_mutation_name(file_name_text)?;
     let target = parent.join(file_name);
     ensure_target_absent(&target)?;
-    persist_new_document(&target, &content)?;
+    persist_new_document(&target, &persisted_content)?;
 
     let revision = revision_from_metadata_and_hash(
         &fs::metadata(&target)
             .map_err(|error| io_error("Could not inspect the new document", error))?,
-        sha256_hex(content.as_bytes()),
+        sha256_hex(persisted_content.as_bytes()),
     )?;
     Ok(DocumentSnapshot {
         relative_path: relative_path_to_string(root, &target)?,
         name: document_name(&target)?,
-        content,
+        content: LineEnding::normalize(&content),
+        line_ending,
         revision,
         history_warning_code: None,
     })
@@ -3178,21 +3188,24 @@ fn write_and_flush(temporary: &mut NamedTempFile, content: &[u8]) -> CommandResu
 }
 
 fn snapshot_from_disk(resolved: &ResolvedDocument) -> CommandResult<DocumentSnapshot> {
-    let (content, revision) = read_utf8_limited(&resolved.absolute_path)?;
+    let (content, line_ending, revision) = read_utf8_limited(&resolved.absolute_path)?;
     Ok(DocumentSnapshot {
         relative_path: resolved.relative_path.clone(),
         name: document_name(&resolved.absolute_path)?,
         content,
+        line_ending,
         revision,
         history_warning_code: None,
     })
 }
 
-fn read_utf8_limited(path: &Path) -> CommandResult<(String, FileRevision)> {
+fn read_utf8_limited(path: &Path) -> CommandResult<(String, LineEnding, FileRevision)> {
     let (bytes, metadata) = read_bytes_limited(path)?;
     let revision = revision_from_metadata_and_hash(&metadata, sha256_hex(&bytes))?;
-    let content = decode_utf8(bytes)?;
-    Ok((content, revision))
+    let raw_content = decode_utf8(bytes)?;
+    let line_ending = LineEnding::detect(&raw_content);
+    let content = LineEnding::normalize(&raw_content);
+    Ok((content, line_ending, revision))
 }
 
 fn read_utf8_content_with_limit(path: &Path, max_bytes: u64) -> CommandResult<(String, u64)> {
@@ -3522,6 +3535,15 @@ fn enforce_content_limit(content: &str) -> CommandResult<()> {
     } else {
         Ok(())
     }
+}
+
+fn encode_content_with_limit(content: &str, line_ending: LineEnding) -> CommandResult<String> {
+    // Reject renderer input before normalization or CRLF expansion allocates a
+    // second large buffer, then enforce the exact byte size written to disk.
+    enforce_content_limit(content)?;
+    let persisted_content = line_ending.encode(content);
+    enforce_content_limit(&persisted_content)?;
+    Ok(persisted_content)
 }
 
 fn file_too_large_error() -> CommandError {
@@ -4917,6 +4939,97 @@ mod tests {
     }
 
     #[test]
+    fn crlf_documents_use_lf_in_the_editor_but_hash_and_save_exact_disk_bytes() {
+        let workspace = tempdir().unwrap();
+        let path = workspace.path().join("windows.md");
+        write_fixture(&workspace, "windows.md", b"first\r\nsecond\r\n");
+
+        let opened = read_document_core(DocumentPathRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "windows.md".to_owned(),
+        })
+        .unwrap();
+
+        assert_eq!(opened.content, "first\nsecond\n");
+        assert_eq!(opened.line_ending, LineEnding::Crlf);
+        assert_eq!(opened.revision.size_bytes, 15);
+        assert_eq!(
+            opened.revision.content_sha256,
+            sha256_hex(b"first\r\nsecond\r\n")
+        );
+        assert_eq!(serde_json::to_value(&opened).unwrap()["lineEnding"], "crlf");
+
+        let saved = write_document_core(WriteDocumentRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "windows.md".to_owned(),
+            content: "first\nchanged\n".to_owned(),
+            line_ending: opened.line_ending,
+            expected_revision: opened.revision,
+        })
+        .unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"first\r\nchanged\r\n");
+        assert_eq!(saved.snapshot.content, "first\nchanged\n");
+        assert_eq!(saved.snapshot.line_ending, LineEnding::Crlf);
+        assert_eq!(saved.snapshot.revision.size_bytes, 16);
+        assert_eq!(
+            saved.snapshot.revision.content_sha256,
+            sha256_hex(b"first\r\nchanged\r\n")
+        );
+        assert_eq!(saved.persisted_content, "first\r\nchanged\r\n");
+    }
+
+    #[test]
+    fn only_consistent_crlf_is_classified_as_crlf() {
+        assert_eq!(LineEnding::detect("first\r\nsecond\r\n"), LineEnding::Crlf);
+        assert_eq!(LineEnding::detect("first\nsecond\n"), LineEnding::Lf);
+        assert_eq!(LineEnding::detect("first\r\nsecond\n"), LineEnding::Lf);
+        assert_eq!(LineEnding::detect("first\rsecond\r\n"), LineEnding::Lf);
+        assert_eq!(LineEnding::detect("one line"), LineEnding::Lf);
+        assert_eq!(
+            LineEnding::normalize("first\r\nsecond\rthird\n"),
+            "first\nsecond\nthird\n"
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_input_and_crlf_expansion() {
+        let oversized_input = "x".repeat((MAX_DOCUMENT_BYTES + 1) as usize);
+        let input_error = encode_content_with_limit(&oversized_input, LineEnding::Crlf)
+            .expect_err("oversized input must be rejected before CRLF expansion");
+        assert_eq!(input_error.code, ErrorCode::FileTooLarge);
+
+        let expansion_overflow = "\n".repeat((MAX_DOCUMENT_BYTES / 2 + 1) as usize);
+        let expansion_error = encode_content_with_limit(&expansion_overflow, LineEnding::Crlf)
+            .expect_err("persisted CRLF bytes must stay within the document limit");
+        assert_eq!(expansion_error.code, ErrorCode::FileTooLarge);
+    }
+
+    #[test]
+    fn save_as_encodes_crlf_before_revision_and_size_are_calculated() {
+        let workspace = tempdir().unwrap();
+        let destination = workspace.path().join("copy.md");
+
+        let saved = save_document_as_core(SaveDocumentAsRequest {
+            workspace_root: root_string(&workspace),
+            destination_path: destination.to_string_lossy().into_owned(),
+            content: "first\nsecond\n".to_owned(),
+            line_ending: LineEnding::Crlf,
+            expected_destination_revision: None,
+        })
+        .unwrap();
+
+        assert_eq!(fs::read(&destination).unwrap(), b"first\r\nsecond\r\n");
+        assert_eq!(saved.snapshot.content, "first\nsecond\n");
+        assert_eq!(saved.snapshot.line_ending, LineEnding::Crlf);
+        assert_eq!(saved.snapshot.revision.size_bytes, 15);
+        assert_eq!(
+            saved.snapshot.revision.content_sha256,
+            sha256_hex(b"first\r\nsecond\r\n")
+        );
+    }
+
+    #[test]
     fn creates_and_atomically_saves_documents_without_temp_residue() {
         let workspace = tempdir().unwrap();
         fs::create_dir(workspace.path().join("notes")).unwrap();
@@ -4928,6 +5041,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(created.content, "first");
+        assert_eq!(created.line_ending, LineEnding::Lf);
         assert_eq!(created.revision.content_sha256, sha256_hex(b"first"));
         assert!(created.history_warning_code.is_none());
 
@@ -4935,6 +5049,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             relative_path: "notes/new.md".to_owned(),
             content: "second version".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_revision: created.revision,
         })
         .unwrap();
@@ -4980,6 +5095,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             relative_path: "note.md".to_owned(),
             content: "after".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_revision: initial.revision,
         })
         .unwrap();
@@ -5008,6 +5124,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             relative_path: "note.md".to_owned(),
             content: "after".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_revision: first_write.snapshot.revision,
         })
         .unwrap();
@@ -5031,6 +5148,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             relative_path: "invalid.md".to_owned(),
             content: "valid replacement".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_revision,
         })
         .unwrap();
@@ -5057,6 +5175,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             relative_path: "note.md".to_owned(),
             content: "viva change".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_revision: snapshot.revision,
         });
         let error = match result {
@@ -5094,6 +5213,7 @@ mod tests {
                         workspace_root: root_string(&workspace),
                         relative_path: "note.md".to_owned(),
                         content: content.to_owned(),
+                        line_ending: LineEnding::Lf,
                         expected_revision: snapshot.revision.clone(),
                     };
                     scope.spawn(move || {
@@ -5203,6 +5323,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             relative_path: "note.md".to_owned(),
             content: "cccccccc".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_revision,
         });
         let error = match result {
@@ -5224,6 +5345,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             destination_path: destination.to_string_lossy().into_owned(),
             content: "saved".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_destination_revision: None,
         })
         .unwrap();
@@ -5236,6 +5358,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             destination_path: destination.to_string_lossy().into_owned(),
             content: "replacement".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_destination_revision: None,
         })
         .unwrap_err();
@@ -5251,6 +5374,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             destination_path: destination.to_string_lossy().into_owned(),
             content: "replacement".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_destination_revision: inspected.revision,
         })
         .unwrap();
@@ -5263,6 +5387,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             destination_path: destination.to_string_lossy().into_owned(),
             content: "must not win".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_destination_revision: Some(stale_revision),
         })
         .unwrap_err();
@@ -5277,6 +5402,7 @@ mod tests {
                 .to_string_lossy()
                 .into_owned(),
             content: "escaped".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_destination_revision: None,
         })
         .unwrap_err();
@@ -5307,6 +5433,7 @@ mod tests {
                         workspace_root: root_string(&workspace),
                         destination_path: destination.to_string_lossy().into_owned(),
                         content: content.to_owned(),
+                        line_ending: LineEnding::Lf,
                         expected_destination_revision: inspected.revision.clone(),
                     };
                     scope.spawn(move || {
@@ -5356,6 +5483,7 @@ mod tests {
             workspace_root: root_string(&workspace),
             destination_path: alias.to_string_lossy().into_owned(),
             content: "replacement".to_owned(),
+            line_ending: LineEnding::Lf,
             expected_destination_revision: inspected.revision,
         })
         .unwrap();

@@ -21,6 +21,7 @@ import {
   workspaceReducer,
   type Activity,
   type DocumentSnapshot,
+  type LineEnding,
   type WorkspaceAction,
   type WorkspaceState,
   type ViewMode,
@@ -594,10 +595,13 @@ export function useWorkspaceController() {
     ],
   );
 
-  const changeDocument = useCallback((id: string, content: string) => {
-    dispatchState({ type: "document/changed", id, content });
-    setStatus(translatedStatus("Not saved", "neutral"));
-  }, [dispatchState]);
+  const changeDocument = useCallback(
+    (id: string, content: string, lineEnding?: LineEnding) => {
+      dispatchState({ type: "document/changed", id, content, lineEnding });
+      setStatus(translatedStatus("Not saved", "neutral"));
+    },
+    [dispatchState],
+  );
 
   const saveDocument = useCallback(
     (id = state.activeDocumentId ?? ""): Promise<boolean> => {
@@ -624,8 +628,10 @@ export function useWorkspaceController() {
           if (!isDocumentContextCurrent(context, id, documentToken)) {
             return false;
           }
+          const latestDocument = liveStateRef.current.documents[id];
           const newerContent =
-            liveStateRef.current.documents[id]?.content !== snapshot.content;
+            latestDocument?.content !== snapshot.content ||
+            latestDocument?.lineEnding !== snapshot.lineEnding;
           dispatchState({ type: "document/saved", previousId: id, snapshot });
           setStatus(statusAfterSave(snapshot, newerContent));
           return !newerContent;
@@ -706,6 +712,7 @@ export function useWorkspaceController() {
               workspace.rootPath,
               destination,
               document.content,
+              document.lineEnding,
               destinationState.revision,
             );
             if (!isDocumentContextCurrent(context, id, documentToken)) {
@@ -794,6 +801,7 @@ export function useWorkspaceController() {
             workspace.rootPath,
             destination,
             `# ${untitled}\n\n`,
+            "lf",
           );
           if (!isWorkspaceContextCurrent(context)) return false;
           markDocumentCurrent(snapshot.relativePath);

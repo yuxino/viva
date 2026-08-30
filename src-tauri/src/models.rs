@@ -22,6 +22,7 @@ pub struct WriteDocumentRequest {
     pub workspace_root: String,
     pub relative_path: String,
     pub content: String,
+    pub line_ending: LineEnding,
     pub expected_revision: FileRevision,
 }
 
@@ -84,6 +85,7 @@ pub struct SaveDocumentAsRequest {
     pub workspace_root: String,
     pub destination_path: String,
     pub content: String,
+    pub line_ending: LineEnding,
     #[serde(default)]
     pub expected_destination_revision: Option<FileRevision>,
 }
@@ -180,9 +182,64 @@ pub struct DocumentSnapshot {
     pub relative_path: String,
     pub name: String,
     pub content: String,
+    pub line_ending: LineEnding,
     pub revision: FileRevision,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_warning_code: Option<HistoryWarningCode>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LineEnding {
+    Lf,
+    Crlf,
+}
+
+impl LineEnding {
+    pub(crate) fn detect(content: &str) -> Self {
+        let bytes = content.as_bytes();
+        let mut saw_line_break = false;
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'\r' if bytes.get(index + 1) == Some(&b'\n') => {
+                    saw_line_break = true;
+                    index += 2;
+                }
+                b'\r' | b'\n' => return Self::Lf,
+                _ => index += 1,
+            }
+        }
+        if saw_line_break { Self::Crlf } else { Self::Lf }
+    }
+
+    pub(crate) fn normalize(content: &str) -> String {
+        if !content.contains('\r') {
+            return content.to_owned();
+        }
+
+        let mut normalized = String::with_capacity(content.len());
+        let mut characters = content.chars().peekable();
+        while let Some(character) = characters.next() {
+            if character == '\r' {
+                if characters.peek() == Some(&'\n') {
+                    characters.next();
+                }
+                normalized.push('\n');
+            } else {
+                normalized.push(character);
+            }
+        }
+        normalized
+    }
+
+    pub(crate) fn encode(self, content: &str) -> String {
+        let normalized = Self::normalize(content);
+        match self {
+            Self::Lf => normalized,
+            Self::Crlf => normalized.replace('\n', "\r\n"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -206,6 +263,7 @@ pub struct DocumentHistorySnapshot {
     pub relative_path: String,
     pub name: String,
     pub content: String,
+    pub line_ending: LineEnding,
     pub created_at_ms: u64,
     pub size_bytes: u64,
 }
