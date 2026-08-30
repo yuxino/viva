@@ -1499,6 +1499,7 @@ fn resolve_existing_workspace_entry(
     root: &Path,
     relative: &str,
 ) -> CommandResult<ResolvedWorkspaceEntry> {
+    validate_portable_relative_path(relative)?;
     let clean_relative = validate_relative_path(Path::new(relative))?;
     ensure_no_symlink_components(root, &clean_relative)?;
 
@@ -3295,9 +3296,20 @@ fn decode_utf8(bytes: Vec<u8>) -> CommandResult<String> {
 }
 
 fn validate_relative_document(path: &str) -> CommandResult<PathBuf> {
+    validate_portable_relative_path(path)?;
     let relative = validate_relative_path(Path::new(path))?;
     ensure_allowed_extension(&relative)?;
     Ok(relative)
+}
+
+fn validate_portable_relative_path(path: &str) -> CommandResult<()> {
+    if path.contains('\\') {
+        return Err(CommandError::new(
+            ErrorCode::InvalidPath,
+            "Workspace paths must use forward slashes between folders.",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_relative_directory(path: &Path) -> CommandResult<()> {
@@ -3823,6 +3835,12 @@ mod tests {
         relative.push("open.md");
         fs::write(&directory, "deep").unwrap();
 
+        let portable_relative = relative
+            .components()
+            .map(|component| component.as_os_str().to_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("/");
+
         let mut complete = true;
         let mut budget = TreeBudget { entries: 0 };
         let entries = walk_directory_with_completeness(
@@ -3834,7 +3852,7 @@ mod tests {
         )
         .unwrap();
         assert!(!complete, "the bounded walk must disclose truncation");
-        let expected_source = format!("notes/{}", relative.to_string_lossy());
+        let expected_source = format!("notes/{portable_relative}");
         let (mappings, history_complete) = directory_history_mappings(
             "notes",
             "archive",
@@ -3843,10 +3861,7 @@ mod tests {
             std::slice::from_ref(&expected_source),
         );
         assert!(!history_complete);
-        assert!(mappings.contains(&(
-            expected_source,
-            format!("archive/{}", relative.to_string_lossy())
-        )));
+        assert!(mappings.contains(&(expected_source, format!("archive/{portable_relative}"))));
     }
 
     #[test]

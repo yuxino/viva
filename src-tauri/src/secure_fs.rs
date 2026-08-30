@@ -69,26 +69,46 @@ where
     H: std::os::windows::io::AsRawHandle,
     D: std::os::windows::io::AsRawHandle,
 {
-    use std::mem::{offset_of, size_of};
+    use std::mem::size_of;
     use std::os::windows::ffi::OsStrExt;
+    use std::path::{Component, Path};
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_RENAME_INFO, FileRenameInfo, SetFileInformationByHandle,
     };
 
-    let wide_name: Vec<u16> = destination_name.encode_wide().collect();
-    if wide_name.is_empty() {
+    let destination_path = Path::new(destination_name);
+    let mut components = destination_path.components();
+    let is_single_leaf = matches!(components.next(), Some(Component::Normal(name)) if name == destination_name)
+        && components.next().is_none();
+    if !is_single_leaf {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "the destination name is empty",
+            "the destination name must be one non-empty path component",
+        ));
+    }
+
+    let wide_name: Vec<u16> = destination_name.encode_wide().collect();
+    if wide_name.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the destination name contains a null character",
         ));
     }
     let name_bytes = wide_name
         .len()
         .checked_mul(size_of::<u16>())
         .ok_or_else(|| io::Error::other("destination name length overflow"))?;
-    let buffer_bytes = offset_of!(FILE_RENAME_INFO, FileName)
+    let file_name_length = u32::try_from(name_bytes)
+        .map_err(|_| io::Error::other("destination name length overflow"))?;
+    // Windows requires the buffer to include the complete fixed-size
+    // FILE_RENAME_INFO structure in addition to the variable UTF-16 name.
+    // Using only the FileName offset produces ERROR_INVALID_PARAMETER on
+    // 64-bit Windows even though the copied bytes themselves fit.
+    let buffer_bytes = size_of::<FILE_RENAME_INFO>()
         .checked_add(name_bytes)
         .ok_or_else(|| io::Error::other("rename buffer length overflow"))?;
+    let buffer_length = u32::try_from(buffer_bytes)
+        .map_err(|_| io::Error::other("rename buffer length overflow"))?;
     let word_bytes = size_of::<usize>();
     let buffer_words = buffer_bytes
         .checked_add(word_bytes - 1)
@@ -102,7 +122,7 @@ where
     unsafe {
         (*information).Anonymous.ReplaceIfExists = false;
         (*information).RootDirectory = destination_directory.as_raw_handle() as _;
-        (*information).FileNameLength = name_bytes as u32;
+        (*information).FileNameLength = file_name_length;
         std::ptr::copy_nonoverlapping(
             wide_name.as_ptr(),
             (*information).FileName.as_mut_ptr(),
@@ -117,7 +137,7 @@ where
             source.as_raw_handle() as _,
             FileRenameInfo,
             information.cast(),
-            buffer_bytes as u32,
+            buffer_length,
         )
     };
     if succeeded == 0 {

@@ -381,6 +381,7 @@ fn create_workspace_image_unleased_core(
 fn prepare_workspace_image(
     request: &CreateWorkspaceImageRequest,
 ) -> CommandResult<PreparedWorkspaceImage> {
+    validate_portable_workspace_relative_path(&request.document_relative_path)?;
     let bytes = decode_image_base64(&request.data_base64)?;
     let (kind, width, height) = inspect_image(&bytes)?;
     validate_dimensions(width, height)?;
@@ -2036,6 +2037,7 @@ fn validate_dimensions(width: u32, height: u32) -> CommandResult<()> {
 }
 
 fn validate_relative_image_path(path: &str) -> CommandResult<PathBuf> {
+    validate_portable_workspace_relative_path(path)?;
     let path = Path::new(path);
     if path.as_os_str().is_empty() || path.is_absolute() {
         return Err(CommandError::new(
@@ -2083,6 +2085,16 @@ fn validate_relative_image_path(path: &str) -> CommandResult<PathBuf> {
         return Err(unsupported_image());
     }
     Ok(clean)
+}
+
+fn validate_portable_workspace_relative_path(path: &str) -> CommandResult<()> {
+    if path.contains('\\') {
+        return Err(CommandError::new(
+            ErrorCode::InvalidPath,
+            "Workspace paths must use forward slashes between folders.",
+        ));
+    }
+    Ok(())
 }
 
 fn is_ignored_directory(name: &str) -> bool {
@@ -2353,10 +2365,27 @@ mod tests {
             "/outside.png",
             ".hidden.png",
             "node_modules/image.png",
+            r"images\hero.png",
         ] {
             let error = read_workspace_image_core(request(&workspace, path)).unwrap_err();
             assert_eq!(error.code, ErrorCode::InvalidPath, "{path}");
         }
+    }
+
+    #[test]
+    fn rejects_windows_separators_in_document_paths_before_creating_assets() {
+        let workspace = tempdir().unwrap();
+        create_document_fixture(&workspace, "notes/daily.md");
+
+        let error = create_workspace_image_unleased_core(create_request(
+            &workspace,
+            r"notes\daily.md",
+            png(32, 18),
+        ))
+        .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::InvalidPath);
+        assert!(!workspace.path().join("notes/assets").exists());
     }
 
     #[test]
@@ -3130,23 +3159,71 @@ mod tests {
         let source = png(48, 27);
         let hash = format!("{:x}", Sha256::digest(&source));
         let expected_name = format!("pasted-{}.png", &hash[..20]);
+        let mut replacement_result = None;
 
-        let error = persist_content_addressed_image_with_hook(
+        let result = persist_content_addressed_image_with_hook(
             &assets,
             &hash,
             "png",
             &source,
             |assets, temporary_name| {
-                assets.remove_file(temporary_name).unwrap();
-                assets
-                    .write(temporary_name, b"malicious replacement")
-                    .unwrap();
+                replacement_result = Some(
+                    assets
+                        .remove_file(temporary_name)
+                        .and_then(|()| assets.write(temporary_name, b"malicious replacement")),
+                );
+            },
+        );
+
+        let published = workspace.path().join("assets").join(expected_name);
+        match replacement_result.expect("the replacement hook must run") {
+            Ok(()) => {
+                let error = result.unwrap_err();
+                assert_eq!(error.code, ErrorCode::Conflict);
+                assert!(!published.exists());
+            }
+            Err(_) => {
+                // Windows deliberately keeps the temporary file open without
+                // write/delete sharing. If the kernel blocks the replacement,
+                // Viva may safely finish publishing only the verified original.
+                let stored = result.unwrap();
+                assert_eq!(
+                    stored.file_name,
+                    published.file_name().unwrap().to_str().unwrap()
+                );
+                assert_eq!(fs::read(published).unwrap(), source);
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_temporary_image_handle_blocks_replacement_and_keeps_the_original() {
+        let workspace = tempdir().unwrap();
+        create_document_fixture(&workspace, "note.md");
+        let root = open_workspace_directory(&root_string(&workspace)).unwrap();
+        let document_parent = open_document_parent(&root, Path::new("note.md")).unwrap();
+        let assets = ensure_assets_directory(&document_parent).unwrap();
+        let source = png(49, 28);
+        let hash = format!("{:x}", Sha256::digest(&source));
+        let mut replacement_was_blocked = false;
+
+        let stored = persist_content_addressed_image_with_hook(
+            &assets,
+            &hash,
+            "png",
+            &source,
+            |assets, temporary_name| {
+                replacement_was_blocked = assets.remove_file(temporary_name).is_err();
             },
         )
-        .unwrap_err();
+        .unwrap();
 
-        assert_eq!(error.code, ErrorCode::Conflict);
-        assert!(!workspace.path().join("assets").join(expected_name).exists());
+        assert!(replacement_was_blocked);
+        assert_eq!(
+            fs::read(workspace.path().join("assets").join(stored.file_name)).unwrap(),
+            source
+        );
     }
 
     #[cfg(unix)]
