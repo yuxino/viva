@@ -184,11 +184,14 @@ mod windows_rename_diagnostic {
     use super::rename_open_handle_noclobber;
     use cap_std::ambient_authority;
     use cap_std::fs::{Dir, OpenOptions, OpenOptionsExt};
-    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use std::mem::size_of;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::Storage::FileSystem::{
-        DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, ReOpenFile, SYNCHRONIZE,
+        DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_RENAME_INFO,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FileRenameInfo,
+        ReOpenFile, SYNCHRONIZE, SetFileInformationByHandle,
     };
 
     fn attempt(dir: &Dir, source_name: &str, destination_name: &str, share: u32) -> String {
@@ -204,6 +207,52 @@ mod windows_rename_diagnostic {
             "{:?}",
             rename_open_handle_noclobber(&source, dir, destination_name)
         )
+    }
+
+    fn attempt_same_parent(
+        dir: &Dir,
+        source_name: &str,
+        destination_name: &str,
+        share: u32,
+    ) -> String {
+        dir.write(source_name, b"diagnostic").unwrap();
+        let mut options = OpenOptions::new();
+        options
+            .read(true)
+            .access_mode(DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE)
+            .share_mode(share)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+        let source = dir.open_with(source_name, &options).unwrap();
+        let wide_name: Vec<u16> = std::ffi::OsStr::new(destination_name)
+            .encode_wide()
+            .collect();
+        let name_bytes = wide_name.len() * size_of::<u16>();
+        let buffer_bytes = size_of::<FILE_RENAME_INFO>() + name_bytes;
+        let mut buffer = vec![0_usize; buffer_bytes.div_ceil(size_of::<usize>())];
+        let information = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+        unsafe {
+            (*information).Anonymous.ReplaceIfExists = false;
+            (*information).RootDirectory = std::ptr::null_mut();
+            (*information).FileNameLength = name_bytes as u32;
+            std::ptr::copy_nonoverlapping(
+                wide_name.as_ptr(),
+                (*information).FileName.as_mut_ptr(),
+                wide_name.len(),
+            );
+        }
+        let succeeded = unsafe {
+            SetFileInformationByHandle(
+                source.as_raw_handle() as _,
+                FileRenameInfo,
+                information.cast(),
+                buffer_bytes as u32,
+            )
+        };
+        if succeeded == 0 {
+            format!("Err({:?})", std::io::Error::last_os_error())
+        } else {
+            "Ok".to_owned()
+        }
     }
 
     #[test]
@@ -238,9 +287,21 @@ mod windows_rename_diagnostic {
             "with-delete-share-renamed.md",
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         );
+        let same_parent_without_delete_share = attempt_same_parent(
+            &dir,
+            "same-parent-without-delete-share.md",
+            "same-parent-without-delete-share-renamed.md",
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+        );
+        let same_parent_with_delete_share = attempt_same_parent(
+            &dir,
+            "same-parent-with-delete-share.md",
+            "same-parent-with-delete-share-renamed.md",
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        );
 
         panic!(
-            "Windows rename diagnostic: root_reopen={root_result}; source_without_delete_share={without_delete_share}; source_with_delete_share={with_delete_share}"
+            "Windows rename diagnostic: root_reopen={root_result}; relative_without_delete_share={without_delete_share}; relative_with_delete_share={with_delete_share}; same_parent_without_delete_share={same_parent_without_delete_share}; same_parent_with_delete_share={same_parent_with_delete_share}"
         );
     }
 }
