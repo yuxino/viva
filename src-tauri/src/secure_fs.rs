@@ -205,7 +205,7 @@ mod windows_rename_diagnostic {
         let source = dir.open_with(source_name, &options).unwrap();
         format!(
             "{:?}",
-            rename_open_handle_noclobber(&source, dir, destination_name)
+            rename_open_handle_noclobber(&source, dir, std::ffi::OsStr::new(destination_name),)
         )
     }
 
