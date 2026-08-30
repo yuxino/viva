@@ -7,9 +7,10 @@
   "license": "MIT",
   "repository": "https://github.com/yuxino/viva",
   "scripts": {
+    "branding:verify": "node scripts/verify-app-branding.mjs Viva",
     "check:size": "node scripts/check-size.mjs",
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "pnpm branding:verify && tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
