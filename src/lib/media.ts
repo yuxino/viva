@@ -30,6 +30,13 @@ export interface WorkspaceImageLease extends WorkspaceImageAsset {
   release: () => void;
 }
 
+export interface RenderedWorkspaceImageReference {
+  alt: string;
+  remote: boolean;
+  source: string;
+  title?: string;
+}
+
 export interface WorkspaceImageCacheLike {
   acquire: (
     workspaceRoot: string,
@@ -166,6 +173,20 @@ export function resolveLocalImagePath(
 export function isRemoteOrEmbeddedImage(source: string): boolean {
   const raw = source.trim();
   return raw.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(raw);
+}
+
+export function readRenderedWorkspaceImageReference(
+  element: HTMLElement,
+): RenderedWorkspaceImageReference | null {
+  const source = element.dataset.imageSrc;
+  if (source === undefined) return null;
+  const title = element.dataset.imageTitle;
+  return {
+    alt: element.dataset.imageAlt ?? "",
+    remote: isRemoteOrEmbeddedImage(source),
+    source,
+    ...(title === undefined ? {} : { title }),
+  };
 }
 
 export class WorkspaceImageCache implements WorkspaceImageCacheLike {

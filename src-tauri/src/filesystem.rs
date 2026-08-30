@@ -1,18 +1,26 @@
 use crate::history;
 use crate::locking::CrossProcessLock;
 use crate::models::{
-    CommandError, CommandResult, CreateDocumentRequest, DocumentPathRequest, DocumentSnapshot,
-    ErrorCode, FileRevision, HistoryWarningCode, InspectSaveDestinationRequest,
-    OpenWorkspaceRequest, SaveDestinationState, SaveDocumentAsRequest, SearchMatch,
-    SearchWorkspaceRequest, WorkspaceEntry, WorkspaceEntryKind, WorkspaceTree,
-    WriteDocumentRequest,
+    CommandError, CommandResult, CreateDocumentRequest, CreateWorkspaceDirectoryRequest,
+    DocumentPathRequest, DocumentSnapshot, DuplicateWorkspaceEntryRequest, ErrorCode,
+    ExpectedDocumentRevision, FileRevision, HistoryWarningCode, InspectSaveDestinationRequest,
+    OpenWorkspaceRequest, RenameWorkspaceEntryRequest, SaveDestinationState, SaveDocumentAsRequest,
+    SearchMatch, SearchWorkspaceRequest, TrashWorkspaceEntryRequest, WorkspaceEntry,
+    WorkspaceEntryKind, WorkspaceEntryMutation, WorkspaceTree, WriteDocumentRequest,
 };
 use crate::runtime::run_blocking;
+#[cfg(target_os = "windows")]
+use crate::secure_fs::rename_open_handle_noclobber;
+use crate::secure_fs::{StableFileIdentity, random_component, stable_handle_identity};
+use cap_std::ambient_authority;
+use cap_std::fs::{
+    Dir as CapabilityDir, File as CapabilityFile, OpenOptions as CapabilityOpenOptions,
+};
 use regex::{Regex, RegexBuilder};
 use sha2::{Digest, Sha256};
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, Metadata};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use tauri::{AppHandle, Manager};
@@ -43,6 +51,40 @@ struct ResolvedDocument {
 struct ResolvedSaveDestination {
     target: PathBuf,
     relative_path: String,
+}
+
+struct ResolvedWorkspaceEntry {
+    absolute_path: PathBuf,
+    relative_path: String,
+    kind: WorkspaceEntryKind,
+}
+
+struct CapabilityDirectory {
+    dir: CapabilityDir,
+    absolute_path: PathBuf,
+}
+
+enum StableEntryHandle {
+    File(CapabilityFile),
+    Directory(CapabilityDir),
+}
+
+impl StableEntryHandle {
+    fn identity(&self) -> CommandResult<StableFileIdentity> {
+        match self {
+            Self::File(file) => stable_handle_identity(file),
+            Self::Directory(directory) => stable_handle_identity(directory),
+        }
+        .map_err(|error| io_error("Could not identify this workspace entry", error))
+    }
+
+    fn metadata(&self) -> CommandResult<cap_std::fs::Metadata> {
+        match self {
+            Self::File(file) => file.metadata(),
+            Self::Directory(directory) => directory.dir_metadata(),
+        }
+        .map_err(|error| io_error("Could not inspect this workspace entry", error))
+    }
 }
 
 #[derive(Debug)]
@@ -236,6 +278,625 @@ fn create_document_core(request: CreateDocumentRequest) -> CommandResult<Documen
 }
 
 #[tauri::command]
+pub async fn create_workspace_directory(
+    app: AppHandle,
+    request: CreateWorkspaceDirectoryRequest,
+) -> CommandResult<WorkspaceEntryMutation> {
+    run_blocking(move || {
+        with_workspace_write_lock(&app, || create_workspace_directory_core(request))
+    })
+    .await
+}
+
+fn create_workspace_directory_core(
+    request: CreateWorkspaceDirectoryRequest,
+) -> CommandResult<WorkspaceEntryMutation> {
+    create_workspace_directory_core_with_hook(request, || {})
+}
+
+fn create_workspace_directory_core_with_hook<F>(
+    request: CreateWorkspaceDirectoryRequest,
+    before_mutation: F,
+) -> CommandResult<WorkspaceEntryMutation>
+where
+    F: FnOnce(),
+{
+    let root = canonical_workspace(&request.workspace_root)?;
+    validate_mutation_name(&request.name)?;
+    if is_ignored_directory(&request.name) {
+        return Err(CommandError::new(
+            ErrorCode::InvalidPath,
+            "This folder is intentionally excluded from the workspace.",
+        ));
+    }
+
+    let parent_path = resolve_workspace_directory(&root, &request.parent_relative_path)?;
+    let parent_relative = parent_path.strip_prefix(&root).map_err(|_| {
+        CommandError::new(
+            ErrorCode::OutsideWorkspace,
+            "The selected folder is outside the open workspace.",
+        )
+    })?;
+    let parent = open_capability_directory(&root, parent_relative)?;
+    before_mutation();
+
+    parent
+        .dir
+        .create_dir(&request.name)
+        .map_err(|error| io_error("Could not create this folder", error))?;
+    if !capability_directory_matches_path(&parent, &parent_path)? {
+        let rollback = parent.dir.remove_dir(&request.name);
+        return Err(mutation_conflict_after_rollback(
+            "The workspace folder changed while creating this folder.",
+            rollback,
+        ));
+    }
+    sync_capability_directory_best_effort(&parent.dir);
+
+    let target = parent_path.join(&request.name);
+
+    Ok(WorkspaceEntryMutation {
+        kind: WorkspaceEntryKind::Directory,
+        source_relative_path: None,
+        destination_relative_path: Some(relative_path_to_string(&root, &target)?),
+        recoverable: false,
+        history_warning_code: None,
+    })
+}
+
+#[tauri::command]
+pub async fn rename_workspace_entry(
+    app: AppHandle,
+    request: RenameWorkspaceEntryRequest,
+) -> CommandResult<WorkspaceEntryMutation> {
+    run_blocking(move || {
+        with_workspace_write_lock(&app, || rename_workspace_entry_sync(&app, request))
+    })
+    .await
+}
+
+fn rename_workspace_entry_sync(
+    app: &AppHandle,
+    request: RenameWorkspaceEntryRequest,
+) -> CommandResult<WorkspaceEntryMutation> {
+    let workspace_root = canonical_workspace(&request.workspace_root)?;
+    let expected_document_paths: Vec<String> = request
+        .expected_documents
+        .iter()
+        .map(|expected| expected.relative_path.clone())
+        .collect();
+    let mut result = rename_workspace_entry_core(request)?;
+    let source_relative_path = result.source_relative_path.clone().ok_or_else(|| {
+        CommandError::new(
+            ErrorCode::Io,
+            "The rename result did not include its source path.",
+        )
+    })?;
+    let requested_destination = result.destination_relative_path.clone().ok_or_else(|| {
+        CommandError::new(
+            ErrorCode::Io,
+            "The rename result did not include its destination path.",
+        )
+    })?;
+    let renamed_entry = resolve_existing_workspace_entry(&workspace_root, &requested_destination)?;
+    let destination_relative_path = renamed_entry.relative_path.clone();
+    result.destination_relative_path = Some(destination_relative_path.clone());
+
+    let (history_mappings, history_scan_complete) = match result.kind {
+        WorkspaceEntryKind::File => (
+            vec![(
+                source_relative_path.clone(),
+                destination_relative_path.clone(),
+            )],
+            true,
+        ),
+        WorkspaceEntryKind::Directory => {
+            let mut budget = TreeBudget { entries: 0 };
+            let mut scan_complete = true;
+            match walk_directory_with_completeness(
+                &workspace_root,
+                &renamed_entry.absolute_path,
+                0,
+                &mut budget,
+                &mut scan_complete,
+            ) {
+                Ok(entries) => directory_history_mappings(
+                    &source_relative_path,
+                    &destination_relative_path,
+                    &entries,
+                    scan_complete,
+                    &expected_document_paths,
+                ),
+                Err(_) => directory_history_mappings(
+                    &source_relative_path,
+                    &destination_relative_path,
+                    &[],
+                    false,
+                    &expected_document_paths,
+                ),
+            }
+        }
+        WorkspaceEntryKind::Image => (Vec::new(), true),
+    };
+    let history_available =
+        history::move_document_histories_best_effort(app, &workspace_root, &history_mappings)
+            && history_scan_complete;
+    if !history_available {
+        result.history_warning_code = Some(HistoryWarningCode::HistoryUnavailable);
+    }
+    Ok(result)
+}
+
+fn rename_workspace_entry_core(
+    request: RenameWorkspaceEntryRequest,
+) -> CommandResult<WorkspaceEntryMutation> {
+    rename_workspace_entry_core_with_hooks(request, || {}, || {})
+}
+
+#[cfg(all(test, unix))]
+fn rename_workspace_entry_core_with_hook<F>(
+    request: RenameWorkspaceEntryRequest,
+    before_mutation: F,
+) -> CommandResult<WorkspaceEntryMutation>
+where
+    F: FnOnce(),
+{
+    rename_workspace_entry_core_with_hooks(request, before_mutation, || {})
+}
+
+fn rename_workspace_entry_core_with_hooks<F, G>(
+    request: RenameWorkspaceEntryRequest,
+    before_mutation: F,
+    after_identity_check: G,
+) -> CommandResult<WorkspaceEntryMutation>
+where
+    F: FnOnce(),
+    G: FnOnce(),
+{
+    let root = canonical_workspace(&request.workspace_root)?;
+    let source = resolve_existing_workspace_entry(&root, &request.relative_path)?;
+    validate_mutation_name(&request.new_name)?;
+    validate_renamed_entry(&source, &request.new_name)?;
+    ensure_expected_documents_current(&root, &source, &request.expected_documents)?;
+    ensure_entry_path_still_resolves(&root, &source)?;
+
+    let parent_path = source.absolute_path.parent().ok_or_else(|| {
+        CommandError::new(
+            ErrorCode::InvalidPath,
+            "Workspace entries must have a parent folder.",
+        )
+    })?;
+    let parent_relative = parent_path.strip_prefix(&root).map_err(|_| {
+        CommandError::new(
+            ErrorCode::OutsideWorkspace,
+            "The selected entry is outside the open workspace.",
+        )
+    })?;
+    let parent = open_capability_directory(&root, parent_relative)?;
+    let source_name = source.absolute_path.file_name().ok_or_else(|| {
+        CommandError::new(ErrorCode::InvalidPath, "Choose a valid workspace entry.")
+    })?;
+    let source_handle = open_stable_entry(&parent.dir, source_name, source.kind)?;
+    let source_identity = source_handle.identity()?;
+
+    let destination = parent_path.join(&request.new_name);
+    let destination_relative_path = relative_path_to_string(&root, &destination)?;
+
+    if destination == source.absolute_path {
+        return Ok(WorkspaceEntryMutation {
+            kind: source.kind,
+            source_relative_path: Some(source.relative_path),
+            destination_relative_path: Some(destination_relative_path),
+            recoverable: false,
+            history_warning_code: None,
+        });
+    }
+
+    before_mutation();
+    if !stable_entry_path_matches(&parent.dir, source_name, source.kind, source_identity)? {
+        return Err(workspace_entry_conflict_error());
+    }
+
+    let case_only_alias = match parent.dir.symlink_metadata(&request.new_name) {
+        Ok(metadata) => {
+            if metadata.is_symlink() {
+                return Err(CommandError::new(
+                    ErrorCode::AlreadyExists,
+                    "A workspace entry already exists at this location.",
+                ));
+            }
+            if !stable_entry_path_matches(
+                &parent.dir,
+                OsStr::new(&request.new_name),
+                source.kind,
+                source_identity,
+            )? || directory_contains_exact_name(&parent.dir, OsStr::new(&request.new_name))?
+            {
+                return Err(CommandError::new(
+                    ErrorCode::AlreadyExists,
+                    "A workspace entry already exists at this location.",
+                ));
+            }
+            true
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => return Err(io_error("Could not inspect the rename destination", error)),
+    };
+
+    after_identity_check();
+    if case_only_alias {
+        rename_case_only_bound(
+            &parent,
+            source_name,
+            OsStr::new(&request.new_name),
+            source.kind,
+            source_identity,
+        )?;
+    } else {
+        capability_rename_noclobber(
+            &parent,
+            source_name,
+            &parent,
+            OsStr::new(&request.new_name),
+            "Could not rename this workspace entry",
+        )?;
+        ensure_moved_entry_identity_or_rollback(
+            &parent,
+            OsStr::new(&request.new_name),
+            source_name,
+            source.kind,
+            source_identity,
+            "The workspace entry changed while it was being renamed.",
+        )?;
+    }
+    if !capability_directory_matches_path(&parent, parent_path)? {
+        let rollback = rollback_moved_entry(&parent, OsStr::new(&request.new_name), source_name);
+        return Err(mutation_conflict_after_rollback(
+            "The workspace folder changed while renaming this entry.",
+            rollback,
+        ));
+    }
+    ensure_moved_entry_identity_or_rollback(
+        &parent,
+        OsStr::new(&request.new_name),
+        source_name,
+        source.kind,
+        source_identity,
+        "The workspace entry changed while it was being renamed.",
+    )?;
+    sync_capability_directory_best_effort(&parent.dir);
+
+    Ok(WorkspaceEntryMutation {
+        kind: source.kind,
+        source_relative_path: Some(source.relative_path),
+        destination_relative_path: Some(destination_relative_path),
+        recoverable: false,
+        history_warning_code: None,
+    })
+}
+
+#[tauri::command]
+pub async fn duplicate_workspace_entry(
+    app: AppHandle,
+    request: DuplicateWorkspaceEntryRequest,
+) -> CommandResult<WorkspaceEntryMutation> {
+    run_blocking(move || {
+        with_workspace_write_lock(&app, || duplicate_workspace_entry_core(request))
+    })
+    .await
+}
+
+fn duplicate_workspace_entry_core(
+    request: DuplicateWorkspaceEntryRequest,
+) -> CommandResult<WorkspaceEntryMutation> {
+    duplicate_workspace_entry_core_with_hooks(request, || {}, |_, _| {})
+}
+
+#[cfg(all(test, unix))]
+fn duplicate_workspace_entry_core_with_hook<F>(
+    request: DuplicateWorkspaceEntryRequest,
+    before_mutation: F,
+) -> CommandResult<WorkspaceEntryMutation>
+where
+    F: FnOnce(),
+{
+    duplicate_workspace_entry_core_with_hooks(request, before_mutation, |_, _| {})
+}
+
+fn duplicate_workspace_entry_core_with_hooks<F, G>(
+    request: DuplicateWorkspaceEntryRequest,
+    before_mutation: F,
+    after_temporary_ready: G,
+) -> CommandResult<WorkspaceEntryMutation>
+where
+    F: FnOnce(),
+    G: FnOnce(&CapabilityDir, &OsStr),
+{
+    let root = canonical_workspace(&request.workspace_root)?;
+    let source = resolve_existing_workspace_entry(&root, &request.relative_path)?;
+    if source.kind == WorkspaceEntryKind::Directory {
+        return Err(CommandError::new(
+            ErrorCode::NotFile,
+            "Folders cannot be duplicated yet.",
+        ));
+    }
+    ensure_duplicate_revision_current(&source, request.expected_revision.as_ref())?;
+    ensure_entry_path_still_resolves(&root, &source)?;
+
+    let parent_path = source.absolute_path.parent().ok_or_else(|| {
+        CommandError::new(
+            ErrorCode::InvalidPath,
+            "Workspace entries must have a parent folder.",
+        )
+    })?;
+    let parent_relative = parent_path.strip_prefix(&root).map_err(|_| {
+        CommandError::new(
+            ErrorCode::OutsideWorkspace,
+            "The selected entry is outside the open workspace.",
+        )
+    })?;
+    let parent = open_capability_directory(&root, parent_relative)?;
+    let source_name = source.absolute_path.file_name().ok_or_else(|| {
+        CommandError::new(ErrorCode::InvalidPath, "Choose a valid workspace entry.")
+    })?;
+    let source_handle = open_stable_entry(&parent.dir, source_name, source.kind)?;
+    let source_identity = source_handle.identity()?;
+    before_mutation();
+    if !stable_entry_path_matches(&parent.dir, source_name, source.kind, source_identity)? {
+        return Err(workspace_entry_conflict_error());
+    }
+
+    let stem = source
+        .absolute_path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| CommandError::new(ErrorCode::InvalidPath, "Choose a valid file name."))?;
+    let extension = source
+        .absolute_path
+        .extension()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| CommandError::new(ErrorCode::InvalidPath, "Choose a valid file name."))?;
+
+    let mut after_temporary_ready = Some(after_temporary_ready);
+    for copy_index in 1..=10_000_u32 {
+        let suffix = if copy_index == 1 {
+            " copy".to_owned()
+        } else {
+            format!(" copy {copy_index}")
+        };
+        let destination_name = format!("{stem}{suffix}.{extension}");
+        let destination = parent_path.join(&destination_name);
+        match copy_file_noclobber_capability(
+            &parent,
+            source_name,
+            source.kind,
+            source_identity,
+            &destination_name,
+            request.expected_revision.as_ref(),
+            &mut after_temporary_ready,
+        ) {
+            Ok(destination_identity) => {
+                if !capability_directory_matches_path(&parent, parent_path)? {
+                    let rollback = if verify_capability_file_identity(
+                        &parent.dir,
+                        OsStr::new(&destination_name),
+                        destination_identity,
+                    )
+                    .unwrap_or(false)
+                    {
+                        parent.dir.remove_file(&destination_name)
+                    } else {
+                        Err(io::Error::other(
+                            "the duplicate destination changed before rollback",
+                        ))
+                    };
+                    return Err(mutation_conflict_after_rollback(
+                        "The workspace folder changed while duplicating this entry.",
+                        rollback,
+                    ));
+                }
+                sync_capability_directory_best_effort(&parent.dir);
+                return Ok(WorkspaceEntryMutation {
+                    kind: source.kind,
+                    source_relative_path: Some(source.relative_path),
+                    destination_relative_path: Some(relative_path_to_string(&root, &destination)?),
+                    recoverable: false,
+                    history_warning_code: None,
+                });
+            }
+            Err(error) if error.code == ErrorCode::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(CommandError::new(
+        ErrorCode::AlreadyExists,
+        "Viva could not find an available copy name.",
+    ))
+}
+
+#[tauri::command]
+pub async fn trash_workspace_entry(
+    app: AppHandle,
+    request: TrashWorkspaceEntryRequest,
+) -> CommandResult<WorkspaceEntryMutation> {
+    run_blocking(move || {
+        with_workspace_write_lock(&app, || {
+            trash_workspace_entry_core(request, move_staged_entry_to_system_trash)
+        })
+    })
+    .await
+}
+
+fn trash_workspace_entry_core<F>(
+    request: TrashWorkspaceEntryRequest,
+    move_to_trash: F,
+) -> CommandResult<WorkspaceEntryMutation>
+where
+    F: FnOnce(
+        &CapabilityDirectory,
+        &OsStr,
+        WorkspaceEntryKind,
+        StableFileIdentity,
+    ) -> CommandResult<()>,
+{
+    trash_workspace_entry_core_with_hooks(request, || {}, || {}, |_, _| {}, move_to_trash)
+}
+
+#[cfg(all(test, unix))]
+fn trash_workspace_entry_core_with_hook<H, F>(
+    request: TrashWorkspaceEntryRequest,
+    before_staging: H,
+    move_to_trash: F,
+) -> CommandResult<WorkspaceEntryMutation>
+where
+    H: FnOnce(),
+    F: FnOnce(
+        &CapabilityDirectory,
+        &OsStr,
+        WorkspaceEntryKind,
+        StableFileIdentity,
+    ) -> CommandResult<()>,
+{
+    trash_workspace_entry_core_with_hooks(request, before_staging, || {}, |_, _| {}, move_to_trash)
+}
+
+fn trash_workspace_entry_core_with_hooks<H, I, J, F>(
+    request: TrashWorkspaceEntryRequest,
+    before_staging: H,
+    after_identity_check: I,
+    after_staging: J,
+    move_to_trash: F,
+) -> CommandResult<WorkspaceEntryMutation>
+where
+    H: FnOnce(),
+    I: FnOnce(),
+    J: FnOnce(&CapabilityDirectory, &OsStr),
+    F: FnOnce(
+        &CapabilityDirectory,
+        &OsStr,
+        WorkspaceEntryKind,
+        StableFileIdentity,
+    ) -> CommandResult<()>,
+{
+    let root = canonical_workspace(&request.workspace_root)?;
+    let source = resolve_existing_workspace_entry(&root, &request.relative_path)?;
+    ensure_expected_documents_current(&root, &source, &request.expected_documents)?;
+    ensure_entry_path_still_resolves(&root, &source)?;
+    let parent_path = source.absolute_path.parent().ok_or_else(|| {
+        CommandError::new(
+            ErrorCode::InvalidPath,
+            "Workspace entries must have a parent folder.",
+        )
+    })?;
+    let parent_relative = parent_path.strip_prefix(&root).map_err(|_| {
+        CommandError::new(
+            ErrorCode::OutsideWorkspace,
+            "The selected entry is outside the open workspace.",
+        )
+    })?;
+    let parent = open_capability_directory(&root, parent_relative)?;
+    let workspace = open_capability_directory(&root, Path::new(""))?;
+    let source_name = source.absolute_path.file_name().ok_or_else(|| {
+        CommandError::new(ErrorCode::InvalidPath, "Choose a valid workspace entry.")
+    })?;
+    let source_handle = open_stable_entry(&parent.dir, source_name, source.kind)?;
+    let source_identity = source_handle.identity()?;
+    before_staging();
+    if !stable_entry_path_matches(&parent.dir, source_name, source.kind, source_identity)? {
+        return Err(workspace_entry_conflict_error());
+    }
+    after_identity_check();
+
+    let staging = create_trash_staging_directory(&workspace)?;
+    capability_rename_noclobber(
+        &parent,
+        source_name,
+        staging.directory(),
+        source_name,
+        "Could not stage this workspace entry for the system Trash",
+    )?;
+    if !stable_entry_path_matches(
+        &staging.directory().dir,
+        source_name,
+        source.kind,
+        source_identity,
+    )
+    .unwrap_or(false)
+    {
+        let rollback =
+            capability_rename_noclobber_io(staging.directory(), source_name, &parent, source_name);
+        return Err(mutation_conflict_after_rollback(
+            "The workspace entry changed while it was being staged for Trash.",
+            rollback,
+        ));
+    }
+    sync_capability_directory_best_effort(&parent.dir);
+    sync_capability_directory_best_effort(&workspace.dir);
+
+    after_staging(staging.directory(), source_name);
+    if !stable_entry_path_matches(
+        &staging.directory().dir,
+        source_name,
+        source.kind,
+        source_identity,
+    )? {
+        return Err(mutation_conflict_after_rollback(
+            "The staged workspace entry changed before it could be moved to Trash.",
+            capability_rename_noclobber_io(staging.directory(), source_name, &parent, source_name),
+        ));
+    }
+    if let Err(error) = move_to_trash(
+        staging.directory(),
+        source_name,
+        source.kind,
+        source_identity,
+    ) {
+        let rollback = capability_rename_noclobber(
+            staging.directory(),
+            source_name,
+            &parent,
+            source_name,
+            "Could not restore this workspace entry after the system Trash failed",
+        );
+        return match rollback {
+            Ok(()) => Err(error),
+            Err(rollback_error) => Err(CommandError::new(
+                ErrorCode::Io,
+                format!(
+                    "{} Viva also could not restore the staged entry: {}",
+                    error.message, rollback_error.message
+                ),
+            )),
+        };
+    }
+    match staging.directory().dir.symlink_metadata(source_name) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Ok(_) | Err(_) => {
+            let rollback = capability_rename_noclobber_io(
+                staging.directory(),
+                source_name,
+                &parent,
+                source_name,
+            );
+            return Err(mutation_conflict_after_rollback(
+                "The system Trash did not remove the staged workspace entry cleanly.",
+                rollback,
+            ));
+        }
+    }
+    sync_capability_directory_best_effort(&workspace.dir);
+
+    Ok(WorkspaceEntryMutation {
+        kind: source.kind,
+        source_relative_path: Some(source.relative_path),
+        destination_relative_path: None,
+        recoverable: true,
+        history_warning_code: None,
+    })
+}
+
+#[tauri::command]
 pub async fn inspect_save_destination(
     request: InspectSaveDestinationRequest,
 ) -> CommandResult<SaveDestinationState> {
@@ -324,12 +985,7 @@ fn with_document_write_lock_and_history<T>(
     persist: impl FnOnce() -> CommandResult<T>,
     record_history: impl FnOnce(&T) -> bool,
 ) -> CommandResult<(T, bool)> {
-    let app_data = app.path().app_data_dir().map_err(|error| {
-        CommandError::new(
-            ErrorCode::Io,
-            format!("Could not locate Viva's app data folder: {error}"),
-        )
-    })?;
+    let app_data = app_data_directory(app)?;
     with_document_write_lock_and_history_path(
         &app_data
             .join(PROCESS_LOCK_DIRECTORY_NAME)
@@ -337,6 +993,28 @@ fn with_document_write_lock_and_history<T>(
         persist,
         record_history,
     )
+}
+
+fn with_workspace_write_lock<T>(
+    app: &AppHandle,
+    operation: impl FnOnce() -> CommandResult<T>,
+) -> CommandResult<T> {
+    let app_data = app_data_directory(app)?;
+    with_document_write_lock_path(
+        &app_data
+            .join(PROCESS_LOCK_DIRECTORY_NAME)
+            .join(DOCUMENT_WRITES_LOCK_FILE_NAME),
+        operation,
+    )
+}
+
+fn app_data_directory(app: &AppHandle) -> CommandResult<PathBuf> {
+    app.path().app_data_dir().map_err(|error| {
+        CommandError::new(
+            ErrorCode::Io,
+            format!("Could not locate Viva's app data folder: {error}"),
+        )
+    })
 }
 
 fn with_document_write_lock_and_history_path<T>(
@@ -601,7 +1279,19 @@ fn walk_directory(
     depth: usize,
     budget: &mut TreeBudget,
 ) -> CommandResult<Vec<WorkspaceEntry>> {
+    let mut complete = true;
+    walk_directory_with_completeness(root, current, depth, budget, &mut complete)
+}
+
+fn walk_directory_with_completeness(
+    root: &Path,
+    current: &Path,
+    depth: usize,
+    budget: &mut TreeBudget,
+    complete: &mut bool,
+) -> CommandResult<Vec<WorkspaceEntry>> {
     if depth >= MAX_TREE_DEPTH {
+        *complete = false;
         return Ok(Vec::new());
     }
 
@@ -631,10 +1321,8 @@ fn walk_directory(
             if is_ignored_directory(&name) {
                 continue;
             }
-            let children = walk_directory(root, &path, depth + 1, budget)?;
-            if children.is_empty() {
-                continue;
-            }
+            let children =
+                walk_directory_with_completeness(root, &path, depth + 1, budget, complete)?;
             budget.count_entry()?;
             visible_entries.push(WorkspaceEntry {
                 name,
@@ -679,7 +1367,6 @@ fn entry_sort_rank(kind: WorkspaceEntryKind) -> u8 {
     }
 }
 
-#[cfg(test)]
 fn collect_document_paths(entries: &[WorkspaceEntry], output: &mut Vec<String>) {
     for entry in entries {
         match entry.kind {
@@ -688,6 +1375,47 @@ fn collect_document_paths(entries: &[WorkspaceEntry], output: &mut Vec<String>) 
             WorkspaceEntryKind::Image => {}
         }
     }
+}
+
+fn directory_history_mappings(
+    source_relative_path: &str,
+    destination_relative_path: &str,
+    entries: &[WorkspaceEntry],
+    scan_complete: bool,
+    expected_document_paths: &[String],
+) -> (Vec<(String, String)>, bool) {
+    let mut destination_documents = Vec::new();
+    collect_document_paths(entries, &mut destination_documents);
+
+    let mut complete = scan_complete;
+    let mut mappings = Vec::new();
+    for destination in destination_documents {
+        match renamed_descendant_path(
+            destination_relative_path,
+            source_relative_path,
+            &destination,
+        ) {
+            Some(source) => mappings.push((source, destination)),
+            None => complete = false,
+        }
+    }
+
+    // The tree walk is bounded for responsiveness. Open documents supplied by the
+    // caller are authoritative and must still have their history migrated even
+    // when they live below that bound or the best-effort scan fails.
+    for source in expected_document_paths {
+        let Some(destination) =
+            renamed_descendant_path(source_relative_path, destination_relative_path, source)
+        else {
+            complete = false;
+            continue;
+        };
+        if !mappings.iter().any(|mapping| mapping.0 == *source) {
+            mappings.push((source.clone(), destination));
+        }
+    }
+
+    (mappings, complete)
 }
 
 fn canonical_workspace(path: &str) -> CommandResult<PathBuf> {
@@ -765,6 +1493,1452 @@ fn resolve_existing_document(root: &Path, relative: &str) -> CommandResult<Resol
         absolute_path: canonical,
         relative_path,
     })
+}
+
+fn resolve_existing_workspace_entry(
+    root: &Path,
+    relative: &str,
+) -> CommandResult<ResolvedWorkspaceEntry> {
+    let clean_relative = validate_relative_path(Path::new(relative))?;
+    ensure_no_symlink_components(root, &clean_relative)?;
+
+    let candidate = root.join(&clean_relative);
+    let link_metadata = fs::symlink_metadata(&candidate)
+        .map_err(|error| io_error("Could not find this workspace entry", error))?;
+    if link_metadata.file_type().is_symlink() {
+        return Err(CommandError::new(
+            ErrorCode::SymlinkNotAllowed,
+            "Symbolic links are not available in a Viva workspace.",
+        ));
+    }
+
+    let canonical = fs::canonicalize(&candidate)
+        .map_err(|error| io_error("Could not open this workspace entry", error))?;
+    ensure_within_workspace(root, &canonical)?;
+    let metadata = fs::metadata(&canonical)
+        .map_err(|error| io_error("Could not inspect this workspace entry", error))?;
+    let kind = if metadata.is_dir() {
+        let name = canonical
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or_else(|| {
+                CommandError::new(ErrorCode::InvalidPath, "Choose a valid workspace folder.")
+            })?;
+        if is_ignored_directory(name) {
+            return Err(CommandError::new(
+                ErrorCode::InvalidPath,
+                "This folder is intentionally excluded from the workspace.",
+            ));
+        }
+        WorkspaceEntryKind::Directory
+    } else if metadata.is_file() && is_allowed_document(&canonical) {
+        WorkspaceEntryKind::File
+    } else if metadata.is_file() && is_allowed_image(&canonical) {
+        WorkspaceEntryKind::Image
+    } else if metadata.is_file() {
+        return Err(CommandError::new(
+            ErrorCode::UnsupportedFileType,
+            "This file type is not available in a Viva workspace.",
+        ));
+    } else {
+        return Err(CommandError::new(
+            ErrorCode::NotFile,
+            "This workspace entry is not a regular file or folder.",
+        ));
+    };
+
+    Ok(ResolvedWorkspaceEntry {
+        relative_path: relative_path_to_string(root, &canonical)?,
+        absolute_path: canonical,
+        kind,
+    })
+}
+
+fn resolve_workspace_directory(root: &Path, relative: &str) -> CommandResult<PathBuf> {
+    if relative.is_empty() {
+        return Ok(root.to_path_buf());
+    }
+    let resolved = resolve_existing_workspace_entry(root, relative)?;
+    if resolved.kind != WorkspaceEntryKind::Directory {
+        return Err(CommandError::new(
+            ErrorCode::NotDirectory,
+            "Choose a workspace folder.",
+        ));
+    }
+    Ok(resolved.absolute_path)
+}
+
+fn open_capability_directory(root: &Path, relative: &Path) -> CommandResult<CapabilityDirectory> {
+    let clean_relative = if relative.as_os_str().is_empty() {
+        PathBuf::new()
+    } else {
+        validate_relative_path(relative)?
+    };
+    let mut directory = CapabilityDir::open_ambient_dir(root, ambient_authority())
+        .map_err(|error| io_error("Could not open this workspace", error))?;
+
+    for component in clean_relative.components() {
+        let Component::Normal(name) = component else {
+            return Err(CommandError::new(
+                ErrorCode::InvalidPath,
+                "Workspace paths cannot contain parent or absolute components.",
+            ));
+        };
+        let metadata = directory
+            .symlink_metadata(name)
+            .map_err(|error| io_error("Could not inspect a workspace folder", error))?;
+        if metadata.is_symlink() {
+            return Err(CommandError::new(
+                ErrorCode::SymlinkNotAllowed,
+                "Symbolic links are not available in a Viva workspace.",
+            ));
+        }
+        if !metadata.is_dir() {
+            return Err(CommandError::new(
+                ErrorCode::NotDirectory,
+                "Choose a workspace folder.",
+            ));
+        }
+        directory = directory
+            .open_dir(name)
+            .map_err(|error| io_error("Could not open a workspace folder", error))?;
+    }
+
+    let capability = CapabilityDirectory {
+        dir: directory,
+        absolute_path: root.join(&clean_relative),
+    };
+    if !capability_directory_matches_path(&capability, &capability.absolute_path)? {
+        return Err(workspace_entry_conflict_error());
+    }
+    Ok(capability)
+}
+
+fn checked_capability_entry(
+    parent: &CapabilityDir,
+    name: &OsStr,
+    kind: WorkspaceEntryKind,
+) -> CommandResult<cap_std::fs::Metadata> {
+    let metadata = parent
+        .symlink_metadata(name)
+        .map_err(|error| io_error("Could not inspect this workspace entry", error))?;
+    if metadata.is_symlink() {
+        return Err(CommandError::new(
+            ErrorCode::SymlinkNotAllowed,
+            "Symbolic links are not available in a Viva workspace.",
+        ));
+    }
+    let valid_kind = match kind {
+        WorkspaceEntryKind::Directory => metadata.is_dir(),
+        WorkspaceEntryKind::File | WorkspaceEntryKind::Image => metadata.is_file(),
+    };
+    if !valid_kind {
+        return Err(workspace_entry_conflict_error());
+    }
+    Ok(metadata)
+}
+
+fn open_stable_entry(
+    parent: &CapabilityDir,
+    name: &OsStr,
+    kind: WorkspaceEntryKind,
+) -> CommandResult<StableEntryHandle> {
+    checked_capability_entry(parent, name, kind)?;
+    let handle = match kind {
+        #[cfg(not(target_os = "windows"))]
+        WorkspaceEntryKind::Directory => StableEntryHandle::Directory(
+            parent
+                .open_dir(name)
+                .map_err(|error| io_error("Could not open this workspace folder", error))?,
+        ),
+        #[cfg(target_os = "windows")]
+        WorkspaceEntryKind::Directory => {
+            use cap_std::fs::OpenOptionsExt;
+            use windows_sys::Win32::Storage::FileSystem::{
+                FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+                FILE_SHARE_READ, FILE_SHARE_WRITE,
+            };
+            let mut options = CapabilityOpenOptions::new();
+            options
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+            StableEntryHandle::File(
+                parent
+                    .open_with(name, &options)
+                    .map_err(|error| io_error("Could not open this workspace folder", error))?,
+            )
+        }
+        WorkspaceEntryKind::File | WorkspaceEntryKind::Image => {
+            let mut options = CapabilityOpenOptions::new();
+            options.read(true);
+            #[cfg(target_os = "windows")]
+            {
+                use cap_std::fs::OpenOptionsExt;
+                use windows_sys::Win32::Storage::FileSystem::{
+                    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+                };
+                options.share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+            }
+            StableEntryHandle::File(
+                parent
+                    .open_with(name, &options)
+                    .map_err(|error| io_error("Could not open this workspace entry", error))?,
+            )
+        }
+    };
+    let metadata = handle.metadata()?;
+    let valid_kind = match kind {
+        WorkspaceEntryKind::Directory => metadata.is_dir(),
+        WorkspaceEntryKind::File | WorkspaceEntryKind::Image => metadata.is_file(),
+    };
+    if !valid_kind {
+        return Err(workspace_entry_conflict_error());
+    }
+    let expected_identity = handle.identity()?;
+    if !stable_entry_path_matches(parent, name, kind, expected_identity)? {
+        return Err(workspace_entry_conflict_error());
+    }
+    Ok(handle)
+}
+
+fn stable_entry_path_matches(
+    parent: &CapabilityDir,
+    name: &OsStr,
+    kind: WorkspaceEntryKind,
+    expected_identity: StableFileIdentity,
+) -> CommandResult<bool> {
+    let metadata = match checked_capability_entry(parent, name, kind) {
+        Ok(metadata) => metadata,
+        Err(error) if matches!(error.code, ErrorCode::NotFound) => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let current = match kind {
+        WorkspaceEntryKind::Directory => match parent.open_dir(name) {
+            Ok(directory) => StableEntryHandle::Directory(directory),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => {
+                return Err(io_error("Could not recheck this workspace folder", error));
+            }
+        },
+        WorkspaceEntryKind::File | WorkspaceEntryKind::Image => {
+            let mut options = CapabilityOpenOptions::new();
+            options.read(true);
+            #[cfg(target_os = "windows")]
+            {
+                use cap_std::fs::OpenOptionsExt;
+                use windows_sys::Win32::Storage::FileSystem::{
+                    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+                };
+                options.share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+            }
+            match parent.open_with(name, &options) {
+                Ok(file) => StableEntryHandle::File(file),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => {
+                    return Err(io_error("Could not recheck this workspace entry", error));
+                }
+            }
+        }
+    };
+    let current_metadata = current.metadata()?;
+    let current_kind_matches = match kind {
+        WorkspaceEntryKind::Directory => current_metadata.is_dir(),
+        WorkspaceEntryKind::File | WorkspaceEntryKind::Image => current_metadata.is_file(),
+    };
+    Ok(current_kind_matches && !metadata.is_symlink() && current.identity()? == expected_identity)
+}
+
+fn directory_contains_exact_name(directory: &CapabilityDir, name: &OsStr) -> CommandResult<bool> {
+    let entries = directory
+        .entries()
+        .map_err(|error| io_error("Could not inspect the rename destination", error))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| io_error("Could not inspect this folder", error))?;
+        if entry.file_name() == name {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(unix)]
+fn capability_metadata_matches_std(capability: &cap_std::fs::Metadata, ambient: &Metadata) -> bool {
+    use cap_std::fs::MetadataExt as CapabilityMetadataExt;
+    use std::os::unix::fs::MetadataExt as StdMetadataExt;
+    capability.dev() == ambient.dev() && capability.ino() == ambient.ino()
+}
+
+#[cfg(unix)]
+fn capability_directory_matches_path(
+    capability: &CapabilityDirectory,
+    path: &Path,
+) -> CommandResult<bool> {
+    let ambient = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(io_error("Could not recheck a workspace folder", error)),
+    };
+    if ambient.file_type().is_symlink() || !ambient.is_dir() {
+        return Ok(false);
+    }
+    let metadata = capability
+        .dir
+        .dir_metadata()
+        .map_err(|error| io_error("Could not recheck a workspace folder", error))?;
+    Ok(capability_metadata_matches_std(&metadata, &ambient))
+}
+
+#[cfg(target_os = "windows")]
+fn capability_directory_matches_path(
+    capability: &CapabilityDirectory,
+    path: &Path,
+) -> CommandResult<bool> {
+    let current = match CapabilityDir::open_ambient_dir(path, ambient_authority()) {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(io_error("Could not recheck a workspace folder", error)),
+    };
+    Ok(windows_directory_identity(&capability.dir)? == windows_directory_identity(&current)?)
+}
+
+#[cfg(all(not(unix), not(target_os = "windows")))]
+fn capability_directory_matches_path(
+    capability: &CapabilityDirectory,
+    path: &Path,
+) -> CommandResult<bool> {
+    Ok(path.is_dir()
+        && capability
+            .dir
+            .dir_metadata()
+            .map_err(|error| io_error("Could not recheck a workspace folder", error))?
+            .is_dir())
+}
+
+#[cfg(target_os = "windows")]
+fn windows_directory_identity(directory: &CapabilityDir) -> CommandResult<(u32, u64)> {
+    use std::mem::MaybeUninit;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+    // SAFETY: the directory owns a valid OS handle and the output pointer is writable.
+    let succeeded = unsafe {
+        GetFileInformationByHandle(directory.as_raw_handle() as _, information.as_mut_ptr())
+    };
+    if succeeded == 0 {
+        return Err(io_error(
+            "Could not identify a workspace folder",
+            io::Error::last_os_error(),
+        ));
+    }
+    // SAFETY: GetFileInformationByHandle initialized the structure on success.
+    let information = unsafe { information.assume_init() };
+    let file_index = ((information.nFileIndexHigh as u64) << 32) | information.nFileIndexLow as u64;
+    Ok((information.dwVolumeSerialNumber, file_index))
+}
+
+fn ensure_expected_documents_current(
+    root: &Path,
+    source: &ResolvedWorkspaceEntry,
+    expected_documents: &[ExpectedDocumentRevision],
+) -> CommandResult<()> {
+    for expected in expected_documents {
+        let document = resolve_existing_document(root, &expected.relative_path)?;
+        let affected = match source.kind {
+            WorkspaceEntryKind::Directory => {
+                Path::new(&document.relative_path).starts_with(Path::new(&source.relative_path))
+            }
+            WorkspaceEntryKind::File => document.relative_path == source.relative_path,
+            WorkspaceEntryKind::Image => false,
+        };
+        if !affected {
+            return Err(CommandError::new(
+                ErrorCode::InvalidPath,
+                "Expected document revisions must belong to the selected workspace entry.",
+            ));
+        }
+        if read_revision_limited(&document.absolute_path)? != expected.revision {
+            return Err(conflict_error());
+        }
+    }
+    Ok(())
+}
+
+fn ensure_duplicate_revision_current(
+    source: &ResolvedWorkspaceEntry,
+    expected_revision: Option<&FileRevision>,
+) -> CommandResult<()> {
+    let Some(expected_revision) = expected_revision else {
+        return Ok(());
+    };
+    if source.kind != WorkspaceEntryKind::File {
+        return Err(CommandError::new(
+            ErrorCode::InvalidPath,
+            "Revision checks are only available for text documents.",
+        ));
+    }
+    if &read_revision_limited(&source.absolute_path)? != expected_revision {
+        return Err(conflict_error());
+    }
+    Ok(())
+}
+
+fn ensure_entry_path_still_resolves(
+    root: &Path,
+    expected: &ResolvedWorkspaceEntry,
+) -> CommandResult<()> {
+    let current = resolve_existing_workspace_entry(root, &expected.relative_path)?;
+    if current.absolute_path != expected.absolute_path || current.kind != expected.kind {
+        return Err(CommandError::new(
+            ErrorCode::Conflict,
+            "This workspace entry changed on disk. Refresh the workspace and try again.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_renamed_entry(source: &ResolvedWorkspaceEntry, new_name: &str) -> CommandResult<()> {
+    let destination = Path::new(new_name);
+    match source.kind {
+        WorkspaceEntryKind::Directory => {
+            if is_ignored_directory(new_name) {
+                return Err(CommandError::new(
+                    ErrorCode::InvalidPath,
+                    "This folder is intentionally excluded from the workspace.",
+                ));
+            }
+        }
+        WorkspaceEntryKind::File => ensure_allowed_extension(destination)?,
+        WorkspaceEntryKind::Image => {
+            if !is_allowed_image(destination) || !same_extension(&source.absolute_path, destination)
+            {
+                return Err(CommandError::new(
+                    ErrorCode::UnsupportedFileType,
+                    "Renaming an image cannot change its file format.",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn same_extension(left: &Path, right: &Path) -> bool {
+    match (
+        left.extension().and_then(OsStr::to_str),
+        right.extension().and_then(OsStr::to_str),
+    ) {
+        (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),
+        _ => false,
+    }
+}
+
+fn renamed_descendant_path(
+    source_relative_path: &str,
+    destination_relative_path: &str,
+    document_relative_path: &str,
+) -> Option<String> {
+    let tail = Path::new(document_relative_path)
+        .strip_prefix(Path::new(source_relative_path))
+        .ok()?;
+    let renamed = Path::new(destination_relative_path).join(tail);
+    let mut parts = Vec::new();
+    for component in renamed.components() {
+        let Component::Normal(value) = component else {
+            return None;
+        };
+        parts.push(value.to_str()?);
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+fn copy_file_noclobber_capability<G>(
+    parent: &CapabilityDirectory,
+    source_name: &OsStr,
+    source_kind: WorkspaceEntryKind,
+    expected_source_identity: StableFileIdentity,
+    destination_name: &str,
+    expected_revision: Option<&FileRevision>,
+    after_temporary_ready: &mut Option<G>,
+) -> CommandResult<StableFileIdentity>
+where
+    G: FnOnce(&CapabilityDir, &OsStr),
+{
+    if !stable_entry_path_matches(
+        &parent.dir,
+        source_name,
+        source_kind,
+        expected_source_identity,
+    )? {
+        return Err(workspace_entry_conflict_error());
+    }
+    let StableEntryHandle::File(mut source_file) =
+        open_stable_entry(&parent.dir, source_name, source_kind)?
+    else {
+        unreachable!("directories are rejected before copying")
+    };
+    if stable_handle_identity(&source_file)
+        .map_err(|error| io_error("Could not identify the file to duplicate", error))?
+        != expected_source_identity
+    {
+        return Err(workspace_entry_conflict_error());
+    }
+    let before_metadata = source_file
+        .metadata()
+        .map_err(|error| io_error("Could not inspect the file to duplicate", error))?;
+    let before = capability_metadata_revision(&before_metadata)?;
+    let max_bytes = match source_kind {
+        WorkspaceEntryKind::File => MAX_DOCUMENT_BYTES,
+        WorkspaceEntryKind::Image => 24 * 1024 * 1024,
+        WorkspaceEntryKind::Directory => unreachable!("directories are rejected before copying"),
+    };
+    if before.size_bytes > max_bytes {
+        return Err(file_too_large_error());
+    }
+
+    let mut temporary = temporary_capability_file(&parent.dir)?;
+    let temporary_identity = temporary.identity()?;
+    let mut total_bytes = 0_u64;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = source_file
+            .read(&mut buffer)
+            .map_err(|error| io_error("Could not duplicate this file", error))?;
+        if read == 0 {
+            break;
+        }
+        total_bytes = total_bytes.saturating_add(read as u64);
+        if total_bytes > max_bytes {
+            return Err(file_too_large_error());
+        }
+        hasher.update(&buffer[..read]);
+        temporary
+            .file_mut()?
+            .write_all(&buffer[..read])
+            .map_err(|error| io_error("Could not duplicate this file", error))?;
+    }
+
+    let after_metadata = source_file
+        .metadata()
+        .map_err(|error| io_error("Could not recheck the file to duplicate", error))?;
+    let after = capability_metadata_revision(&after_metadata)?;
+    if before != after || total_bytes != after.size_bytes {
+        return Err(CommandError::new(
+            ErrorCode::Conflict,
+            "This file changed while it was being duplicated. Try again.",
+        ));
+    }
+    if !stable_entry_path_matches(
+        &parent.dir,
+        source_name,
+        source_kind,
+        expected_source_identity,
+    )? {
+        return Err(workspace_entry_conflict_error());
+    }
+    let copied_hash = format!("{:x}", hasher.finalize());
+    if let Some(expected) = expected_revision {
+        let copied_revision = FileRevision {
+            modified_at_ms: after.modified_at_ms,
+            size_bytes: after.size_bytes,
+            content_sha256: copied_hash.clone(),
+        };
+        if copied_revision != *expected {
+            return Err(conflict_error());
+        }
+    }
+    temporary
+        .file_mut()?
+        .set_permissions(before_metadata.permissions())
+        .map_err(|error| io_error("Could not preserve the duplicate's permissions", error))?;
+    temporary
+        .file_mut()?
+        .sync_all()
+        .map_err(|error| io_error("Could not flush the duplicate", error))?;
+    if !verify_capability_file_path(
+        &parent.dir,
+        temporary.name(),
+        temporary_identity,
+        total_bytes,
+        &copied_hash,
+    )? {
+        return Err(workspace_entry_conflict_error());
+    }
+    if let Some(after_temporary_ready) = after_temporary_ready.take() {
+        after_temporary_ready(&parent.dir, temporary.name());
+    }
+    let source_path_identity = capability_entry_identity_at(&parent.dir, temporary.name())?;
+    if source_path_identity != Some(temporary_identity) {
+        temporary.remove_securely();
+        if let Some(source_path_identity) = source_path_identity {
+            remove_capability_file_if_identity(&parent.dir, temporary.name(), source_path_identity);
+        }
+        return Err(workspace_entry_conflict_error());
+    }
+    parent
+        .dir
+        .hard_link(temporary.name(), &parent.dir, destination_name)
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                CommandError::new(
+                    ErrorCode::AlreadyExists,
+                    "A workspace entry already exists at this location.",
+                )
+            } else {
+                io_error("Could not create the duplicate", error)
+            }
+        })?;
+    let published_identity =
+        capability_entry_identity_at(&parent.dir, OsStr::new(destination_name))?;
+    if !verify_capability_file_path(
+        &parent.dir,
+        OsStr::new(destination_name),
+        temporary_identity,
+        total_bytes,
+        &copied_hash,
+    )? {
+        temporary.remove_securely();
+        if let Some(published_identity) = published_identity {
+            remove_capability_file_if_identity(
+                &parent.dir,
+                OsStr::new(destination_name),
+                published_identity,
+            );
+        }
+        return Err(workspace_entry_conflict_error());
+    }
+    temporary.remove_securely();
+    Ok(temporary_identity)
+}
+
+struct CapabilityTemporaryFile<'a> {
+    directory: &'a CapabilityDir,
+    name: String,
+    file: Option<CapabilityFile>,
+}
+
+impl CapabilityTemporaryFile<'_> {
+    fn name(&self) -> &OsStr {
+        OsStr::new(&self.name)
+    }
+
+    fn file_mut(&mut self) -> CommandResult<&mut CapabilityFile> {
+        self.file.as_mut().ok_or_else(|| {
+            CommandError::new(ErrorCode::Io, "The temporary duplicate file is closed.")
+        })
+    }
+
+    fn identity(&self) -> CommandResult<StableFileIdentity> {
+        stable_handle_identity(self.file.as_ref().ok_or_else(|| {
+            CommandError::new(ErrorCode::Io, "The temporary duplicate file is closed.")
+        })?)
+        .map_err(|error| io_error("Could not identify the temporary duplicate", error))
+    }
+
+    fn remove_securely(&mut self) {
+        let expected_identity = self.identity().ok();
+        let path_matches = expected_identity
+            .and_then(|identity| {
+                verify_capability_file_identity(self.directory, self.name(), identity).ok()
+            })
+            .unwrap_or(false);
+        self.file.take();
+        if path_matches {
+            let _ = self.directory.remove_file(&self.name);
+        }
+    }
+}
+
+impl Drop for CapabilityTemporaryFile<'_> {
+    fn drop(&mut self) {
+        self.remove_securely();
+    }
+}
+
+fn temporary_capability_file(parent: &CapabilityDir) -> CommandResult<CapabilityTemporaryFile<'_>> {
+    for _ in 0..128 {
+        let name = random_component(".viva-duplicate-", ".tmp").map_err(|error| {
+            io_error(
+                "Could not allocate a secure temporary duplicate name",
+                error,
+            )
+        })?;
+        let mut options = CapabilityOpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use cap_std::fs::OpenOptionsExt;
+            options.mode(0o666);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use cap_std::fs::OpenOptionsExt;
+            use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+            options.share_mode(FILE_SHARE_READ);
+        }
+        match parent.open_with(&name, &options) {
+            Ok(file) => {
+                return Ok(CapabilityTemporaryFile {
+                    directory: parent,
+                    name,
+                    file: Some(file),
+                });
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(io_error("Could not create a temporary duplicate", error));
+            }
+        }
+    }
+    Err(CommandError::new(
+        ErrorCode::AlreadyExists,
+        "Viva could not allocate a temporary duplicate name.",
+    ))
+}
+
+fn verify_capability_file_identity(
+    parent: &CapabilityDir,
+    name: &OsStr,
+    expected_identity: StableFileIdentity,
+) -> CommandResult<bool> {
+    let metadata = match parent.symlink_metadata(name) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(io_error("Could not inspect a temporary file", error)),
+    };
+    if metadata.is_symlink() || !metadata.is_file() {
+        return Ok(false);
+    }
+    let file = match parent.open(name) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(io_error("Could not open a temporary file", error)),
+    };
+    Ok(stable_handle_identity(&file)
+        .map_err(|error| io_error("Could not identify a temporary file", error))?
+        == expected_identity)
+}
+
+#[cfg(unix)]
+fn capability_entry_identity_at(
+    parent: &CapabilityDir,
+    name: &OsStr,
+) -> CommandResult<Option<StableFileIdentity>> {
+    use cap_std::fs::MetadataExt;
+    match parent.symlink_metadata(name) {
+        Ok(metadata) => Ok(Some(StableFileIdentity {
+            volume: metadata.dev(),
+            file: metadata.ino(),
+        })),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(io_error("Could not inspect a published duplicate", error)),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn capability_entry_identity_at(
+    parent: &CapabilityDir,
+    name: &OsStr,
+) -> CommandResult<Option<StableFileIdentity>> {
+    let metadata = match parent.symlink_metadata(name) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(io_error("Could not inspect a published duplicate", error)),
+    };
+    if metadata.is_symlink() || !metadata.is_file() {
+        return Ok(None);
+    }
+    let file = parent
+        .open(name)
+        .map_err(|error| io_error("Could not open a published duplicate", error))?;
+    stable_handle_identity(&file)
+        .map(Some)
+        .map_err(|error| io_error("Could not identify a published duplicate", error))
+}
+
+fn verify_capability_file_path(
+    parent: &CapabilityDir,
+    name: &OsStr,
+    expected_identity: StableFileIdentity,
+    expected_size: u64,
+    expected_hash: &str,
+) -> CommandResult<bool> {
+    if !verify_capability_file_identity(parent, name, expected_identity)? {
+        return Ok(false);
+    }
+    let mut file = parent
+        .open(name)
+        .map_err(|error| io_error("Could not verify the duplicated file", error))?;
+    if stable_handle_identity(&file)
+        .map_err(|error| io_error("Could not identify the duplicated file", error))?
+        != expected_identity
+    {
+        return Ok(false);
+    }
+    let metadata = file
+        .metadata()
+        .map_err(|error| io_error("Could not inspect the duplicated file", error))?;
+    if !metadata.is_file() || metadata.len() != expected_size {
+        return Ok(false);
+    }
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| io_error("Could not verify the duplicated file", error))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()) == expected_hash
+        && verify_capability_file_identity(parent, name, expected_identity)?)
+}
+
+#[cfg(unix)]
+fn remove_capability_file_if_identity(
+    parent: &CapabilityDir,
+    name: &OsStr,
+    expected_identity: StableFileIdentity,
+) {
+    use rustix::fs::{RenameFlags, renameat_with};
+    let Ok(quarantine_name) = random_component(".viva-duplicate-cleanup-", ".tmp") else {
+        return;
+    };
+    if renameat_with(
+        parent,
+        name,
+        parent,
+        OsStr::new(&quarantine_name),
+        RenameFlags::NOREPLACE,
+    )
+    .is_err()
+    {
+        return;
+    }
+    if capability_entry_identity_at(parent, OsStr::new(&quarantine_name))
+        .ok()
+        .flatten()
+        == Some(expected_identity)
+    {
+        let _ = parent.remove_file(&quarantine_name);
+    } else {
+        let _ = renameat_with(
+            parent,
+            OsStr::new(&quarantine_name),
+            parent,
+            name,
+            RenameFlags::NOREPLACE,
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn remove_capability_file_if_identity(
+    parent: &CapabilityDir,
+    name: &OsStr,
+    expected_identity: StableFileIdentity,
+) {
+    use cap_std::fs::OpenOptionsExt;
+    use std::mem::size_of;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_DISPOSITION_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FileDispositionInfo,
+        SYNCHRONIZE, SetFileInformationByHandle,
+    };
+
+    let mut options = CapabilityOpenOptions::new();
+    options.access_mode(DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE);
+    options.share_mode(FILE_SHARE_READ);
+    let Ok(file) = parent.open_with(name, &options) else {
+        return;
+    };
+    if stable_handle_identity(&file).ok() != Some(expected_identity)
+        || !verify_capability_file_identity(parent, name, expected_identity).unwrap_or(false)
+    {
+        return;
+    }
+    let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+    // SAFETY: the handle has DELETE access and the disposition buffer is initialized.
+    let _ = unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle() as _,
+            FileDispositionInfo,
+            (&raw const disposition).cast(),
+            size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+    };
+}
+
+#[cfg(all(not(unix), not(target_os = "windows")))]
+fn remove_capability_file_if_identity(
+    parent: &CapabilityDir,
+    name: &OsStr,
+    expected_identity: StableFileIdentity,
+) {
+    if verify_capability_file_identity(parent, name, expected_identity).unwrap_or(false) {
+        let _ = parent.remove_file(name);
+    }
+}
+
+fn capability_metadata_revision(
+    metadata: &cap_std::fs::Metadata,
+) -> CommandResult<MetadataRevision> {
+    let modified = metadata
+        .modified()
+        .map_err(|error| io_error("Could not read the modification time", error))?
+        .into_std();
+    let duration = modified.duration_since(UNIX_EPOCH).map_err(|_| {
+        CommandError::new(
+            ErrorCode::Io,
+            "This document has an invalid modification time.",
+        )
+    })?;
+    let modified_at_ms = u64::try_from(duration.as_millis()).map_err(|_| {
+        CommandError::new(
+            ErrorCode::Io,
+            "This document has an unsupported modification time.",
+        )
+    })?;
+    Ok(MetadataRevision {
+        modified_at_ms,
+        size_bytes: metadata.len(),
+    })
+}
+
+struct TrashStagingDirectory<'a> {
+    workspace: &'a CapabilityDirectory,
+    name: String,
+    directory: CapabilityDirectory,
+}
+
+impl TrashStagingDirectory<'_> {
+    fn directory(&self) -> &CapabilityDirectory {
+        &self.directory
+    }
+}
+
+impl Drop for TrashStagingDirectory<'_> {
+    fn drop(&mut self) {
+        let _ = self.workspace.dir.remove_dir(&self.name);
+    }
+}
+
+fn create_trash_staging_directory(
+    workspace: &CapabilityDirectory,
+) -> CommandResult<TrashStagingDirectory<'_>> {
+    for _ in 0..128 {
+        let name = random_component(".viva-trash-", ".tmp")
+            .map_err(|error| io_error("Could not allocate a secure Trash staging name", error))?;
+        match create_private_trash_staging_directory(&workspace.dir, &name) {
+            Ok(()) => {
+                #[cfg(unix)]
+                {
+                    use cap_std::fs::PermissionsExt;
+                    if let Err(error) = workspace
+                        .dir
+                        .set_permissions(&name, cap_std::fs::Permissions::from_mode(0o700))
+                    {
+                        let _ = workspace.dir.remove_dir(&name);
+                        return Err(io_error("Could not secure the Trash staging folder", error));
+                    }
+                }
+                let directory = workspace
+                    .dir
+                    .open_dir(&name)
+                    .map_err(|error| io_error("Could not open the Trash staging folder", error))?;
+                return Ok(TrashStagingDirectory {
+                    workspace,
+                    directory: CapabilityDirectory {
+                        dir: directory,
+                        absolute_path: workspace.absolute_path.join(&name),
+                    },
+                    name,
+                });
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(io_error(
+                    "Could not create a secure Trash staging folder",
+                    error,
+                ));
+            }
+        }
+    }
+    Err(CommandError::new(
+        ErrorCode::AlreadyExists,
+        "Viva could not allocate a secure Trash staging folder.",
+    ))
+}
+
+#[cfg(unix)]
+fn create_private_trash_staging_directory(workspace: &CapabilityDir, name: &str) -> io::Result<()> {
+    use cap_std::fs::DirBuilderExt;
+    let mut directory = cap_std::fs::DirBuilder::new();
+    directory.mode(0o700);
+    workspace.create_dir_with(name, &directory)
+}
+
+#[cfg(not(unix))]
+fn create_private_trash_staging_directory(workspace: &CapabilityDir, name: &str) -> io::Result<()> {
+    workspace.create_dir(name)
+}
+
+#[cfg(target_os = "macos")]
+fn move_staged_entry_to_system_trash(
+    staging: &CapabilityDirectory,
+    source_name: &OsStr,
+    kind: WorkspaceEntryKind,
+    expected_identity: StableFileIdentity,
+) -> CommandResult<()> {
+    let stable_directory_path = capability_directory_absolute_path(staging)?;
+    if !capability_directory_matches_path(staging, &stable_directory_path)? {
+        return Err(workspace_entry_conflict_error());
+    }
+    let trash = macos_nsfilemanager_trash_context();
+    move_staged_entry_with_path_trash_using(
+        staging,
+        source_name,
+        kind,
+        expected_identity,
+        &stable_directory_path,
+        |path| trash.delete(path).map_err(|error| error.to_string()),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn macos_nsfilemanager_trash_context() -> trash::TrashContext {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+    let mut trash = trash::TrashContext::default();
+    trash.set_delete_method(DeleteMethod::NsFileManager);
+    trash
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+fn move_staged_entry_to_system_trash(
+    staging: &CapabilityDirectory,
+    source_name: &OsStr,
+    kind: WorkspaceEntryKind,
+    expected_identity: StableFileIdentity,
+) -> CommandResult<()> {
+    use std::os::fd::AsRawFd;
+    let descriptor_root = if cfg!(target_os = "linux") {
+        PathBuf::from(format!("/proc/self/fd/{}", staging.dir.as_raw_fd()))
+    } else {
+        return Err(CommandError::new(
+            ErrorCode::Io,
+            "A handle-relative system Trash is unavailable on this platform.",
+        ));
+    };
+    move_staged_entry_with_path_trash(
+        staging,
+        source_name,
+        kind,
+        expected_identity,
+        &descriptor_root,
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn move_staged_entry_to_system_trash(
+    staging: &CapabilityDirectory,
+    source_name: &OsStr,
+    kind: WorkspaceEntryKind,
+    expected_identity: StableFileIdentity,
+) -> CommandResult<()> {
+    let pinned_path = pin_windows_directory_path(staging)?;
+    move_staged_entry_with_path_trash(
+        staging,
+        source_name,
+        kind,
+        expected_identity,
+        &pinned_path.path,
+    )
+}
+
+#[cfg(target_os = "windows")]
+struct PinnedWindowsDirectoryPath {
+    path: PathBuf,
+    _handles: Vec<CapabilityDir>,
+}
+
+#[cfg(target_os = "windows")]
+fn pin_windows_directory_path(
+    directory: &CapabilityDirectory,
+) -> CommandResult<PinnedWindowsDirectoryPath> {
+    use std::os::windows::fs::MetadataExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+    let path = fs::canonicalize(&directory.absolute_path)
+        .map_err(|error| io_error("Could not resolve the Trash staging folder", error))?;
+    let mut component_paths: Vec<PathBuf> = path
+        .ancestors()
+        .filter(|ancestor| !ancestor.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .collect();
+    component_paths.reverse();
+
+    let mut handles = Vec::with_capacity(component_paths.len());
+    for component_path in &component_paths {
+        let metadata = fs::symlink_metadata(component_path)
+            .map_err(|error| io_error("Could not inspect the Trash staging path", error))?;
+        if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(CommandError::new(
+                ErrorCode::SymlinkNotAllowed,
+                "The Trash staging path contains an unsafe Windows reparse point.",
+            ));
+        }
+        handles.push(
+            CapabilityDir::open_ambient_dir(component_path, ambient_authority())
+                .map_err(|error| io_error("Could not pin the Trash staging path", error))?,
+        );
+    }
+
+    if fs::canonicalize(&path)
+        .map_err(|error| io_error("Could not recheck the Trash staging path", error))?
+        != path
+    {
+        return Err(workspace_entry_conflict_error());
+    }
+    for (component_path, handle) in component_paths.iter().zip(&handles) {
+        let metadata = fs::symlink_metadata(component_path)
+            .map_err(|error| io_error("Could not recheck the Trash staging path", error))?;
+        if !metadata.is_dir()
+            || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || open_windows_directory_identity(component_path)?
+                != stable_handle_identity(handle).map_err(|error| {
+                    io_error("Could not identify the pinned Trash staging path", error)
+                })?
+        {
+            return Err(workspace_entry_conflict_error());
+        }
+    }
+    let pinned_staging_identity = handles
+        .last()
+        .ok_or_else(workspace_entry_conflict_error)
+        .and_then(|handle| {
+            stable_handle_identity(handle)
+                .map_err(|error| io_error("Could not identify the pinned staging folder", error))
+        })?;
+    let capability_staging_identity = stable_handle_identity(&directory.dir)
+        .map_err(|error| io_error("Could not identify the Trash staging folder", error))?;
+    if pinned_staging_identity != capability_staging_identity {
+        return Err(workspace_entry_conflict_error());
+    }
+
+    Ok(PinnedWindowsDirectoryPath {
+        path,
+        _handles: handles,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn open_windows_directory_identity(path: &Path) -> CommandResult<StableFileIdentity> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|error| io_error("Could not re-open the pinned Trash staging path", error))?;
+    stable_handle_identity(&file)
+        .map_err(|error| io_error("Could not identify the pinned Trash staging path", error))
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn move_staged_entry_with_path_trash(
+    staging: &CapabilityDirectory,
+    source_name: &OsStr,
+    kind: WorkspaceEntryKind,
+    expected_identity: StableFileIdentity,
+    stable_directory_path: &Path,
+) -> CommandResult<()> {
+    move_staged_entry_with_path_trash_using(
+        staging,
+        source_name,
+        kind,
+        expected_identity,
+        stable_directory_path,
+        |path| trash::delete(path).map_err(|error| error.to_string()),
+    )
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+fn move_staged_entry_with_path_trash_using<F>(
+    staging: &CapabilityDirectory,
+    source_name: &OsStr,
+    kind: WorkspaceEntryKind,
+    expected_identity: StableFileIdentity,
+    stable_directory_path: &Path,
+    delete: F,
+) -> CommandResult<()>
+where
+    F: FnOnce(&Path) -> Result<(), String>,
+{
+    let quarantine_name = random_component(".viva-trash-item-", ".tmp")
+        .map_err(|error| io_error("Could not allocate a secure Trash item name", error))?;
+    capability_rename_noclobber(
+        staging,
+        source_name,
+        staging,
+        OsStr::new(&quarantine_name),
+        "Could not secure this workspace entry before moving it to Trash",
+    )?;
+    ensure_moved_entry_identity_or_rollback(
+        staging,
+        OsStr::new(&quarantine_name),
+        source_name,
+        kind,
+        expected_identity,
+        "The staged workspace entry changed before it could be moved to Trash.",
+    )?;
+
+    let secured_path = stable_directory_path.join(&quarantine_name);
+    if let Err(error) = delete(&secured_path) {
+        let rollback = capability_rename_noclobber_io(
+            staging,
+            OsStr::new(&quarantine_name),
+            staging,
+            source_name,
+        );
+        return Err(match rollback {
+            Ok(()) => CommandError::new(
+                ErrorCode::Io,
+                format!("Could not move this workspace entry to the system Trash: {error}"),
+            ),
+            Err(rollback_error) => CommandError::new(
+                ErrorCode::Io,
+                format!(
+                    "Could not move this workspace entry to the system Trash: {error}. Viva also could not restore its staged name: {rollback_error}"
+                ),
+            ),
+        });
+    }
+    match staging.dir.symlink_metadata(&quarantine_name) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Ok(_) | Err(_) => Err(mutation_conflict_after_rollback(
+            "The system Trash did not remove the secured workspace entry cleanly.",
+            capability_rename_noclobber_io(
+                staging,
+                OsStr::new(&quarantine_name),
+                staging,
+                source_name,
+            ),
+        )),
+    }
+}
+
+#[cfg(all(
+    not(target_os = "macos"),
+    not(target_os = "linux"),
+    not(target_os = "freebsd"),
+    not(target_os = "windows")
+))]
+fn move_staged_entry_to_system_trash(
+    _staging: &CapabilityDirectory,
+    _source_name: &OsStr,
+    _kind: WorkspaceEntryKind,
+    _expected_identity: StableFileIdentity,
+) -> CommandResult<()> {
+    Err(CommandError::new(
+        ErrorCode::Io,
+        "A recoverable system Trash is unavailable on this platform.",
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn capability_directory_absolute_path(directory: &CapabilityDirectory) -> CommandResult<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let path = rustix::fs::getpath(&directory.dir)
+        .map_err(|error| io::Error::from_raw_os_error(error.raw_os_error()))
+        .map_err(|error| io_error("Could not resolve the Trash staging folder", error))?;
+    Ok(PathBuf::from(OsString::from_vec(path.to_bytes().to_vec())))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn capability_directory_absolute_path(directory: &CapabilityDirectory) -> CommandResult<PathBuf> {
+    use std::os::fd::AsRawFd;
+    fs::read_link(format!("/proc/self/fd/{}", directory.dir.as_raw_fd()))
+        .map_err(|error| io_error("Could not resolve the Trash staging folder", error))
+}
+
+#[cfg(all(
+    not(target_os = "macos"),
+    not(target_os = "linux"),
+    not(target_os = "android"),
+    not(target_os = "windows")
+))]
+fn capability_directory_absolute_path(directory: &CapabilityDirectory) -> CommandResult<PathBuf> {
+    fs::canonicalize(&directory.absolute_path)
+        .map_err(|error| io_error("Could not resolve the Trash staging folder", error))
+}
+
+fn capability_rename_noclobber(
+    source_directory: &CapabilityDirectory,
+    source_name: &OsStr,
+    destination_directory: &CapabilityDirectory,
+    destination_name: &OsStr,
+    context: &str,
+) -> CommandResult<()> {
+    capability_rename_noclobber_io(
+        source_directory,
+        source_name,
+        destination_directory,
+        destination_name,
+    )
+    .map_err(|error| io_error(context, error))
+}
+
+fn rollback_moved_entry(
+    parent: &CapabilityDirectory,
+    current_name: &OsStr,
+    original_name: &OsStr,
+) -> io::Result<()> {
+    capability_rename_noclobber_io(parent, current_name, parent, original_name)
+}
+
+fn ensure_moved_entry_identity_or_rollback(
+    parent: &CapabilityDirectory,
+    current_name: &OsStr,
+    original_name: &OsStr,
+    kind: WorkspaceEntryKind,
+    expected_identity: StableFileIdentity,
+    message: &str,
+) -> CommandResult<()> {
+    match stable_entry_path_matches(&parent.dir, current_name, kind, expected_identity) {
+        Ok(true) => Ok(()),
+        Ok(false) | Err(_) => Err(mutation_conflict_after_rollback(
+            message,
+            rollback_moved_entry(parent, current_name, original_name),
+        )),
+    }
+}
+
+fn rename_case_only_bound(
+    parent: &CapabilityDirectory,
+    source_name: &OsStr,
+    destination_name: &OsStr,
+    kind: WorkspaceEntryKind,
+    expected_identity: StableFileIdentity,
+) -> CommandResult<()> {
+    let temporary_name = loop {
+        let candidate = random_component(".viva-rename-", ".tmp")
+            .map_err(|error| io_error("Could not allocate a secure rename name", error))?;
+        match capability_rename_noclobber_io(parent, source_name, parent, OsStr::new(&candidate)) {
+            Ok(()) => break candidate,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(workspace_entry_conflict_error());
+            }
+            Err(error) => return Err(io_error("Could not stage this case-only rename", error)),
+        }
+    };
+
+    ensure_moved_entry_identity_or_rollback(
+        parent,
+        OsStr::new(&temporary_name),
+        source_name,
+        kind,
+        expected_identity,
+        "The workspace entry changed while it was being renamed.",
+    )?;
+    if let Err(error) = capability_rename_noclobber_io(
+        parent,
+        OsStr::new(&temporary_name),
+        parent,
+        destination_name,
+    ) {
+        let rollback = rollback_moved_entry(parent, OsStr::new(&temporary_name), source_name);
+        return match rollback {
+            Ok(()) => Err(io_error("Could not complete this case-only rename", error)),
+            Err(rollback_error) => Err(CommandError::new(
+                ErrorCode::Io,
+                format!(
+                    "Could not complete this case-only rename: {error}. Viva also could not restore the original name: {rollback_error}"
+                ),
+            )),
+        };
+    }
+    ensure_moved_entry_identity_or_rollback(
+        parent,
+        destination_name,
+        source_name,
+        kind,
+        expected_identity,
+        "The workspace entry changed while it was being renamed.",
+    )
+}
+
+#[cfg(unix)]
+fn capability_rename_noclobber_io(
+    source_directory: &CapabilityDirectory,
+    source_name: &OsStr,
+    destination_directory: &CapabilityDirectory,
+    destination_name: &OsStr,
+) -> io::Result<()> {
+    use rustix::fs::{RenameFlags, renameat_with};
+    renameat_with(
+        &source_directory.dir,
+        source_name,
+        &destination_directory.dir,
+        destination_name,
+        RenameFlags::NOREPLACE,
+    )
+    .map_err(|error| io::Error::from_raw_os_error(error.raw_os_error()))
+}
+
+#[cfg(target_os = "windows")]
+fn capability_rename_noclobber_io(
+    source_directory: &CapabilityDirectory,
+    source_name: &OsStr,
+    destination_directory: &CapabilityDirectory,
+    destination_name: &OsStr,
+) -> io::Result<()> {
+    use cap_std::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, SYNCHRONIZE,
+    };
+
+    let mut options = CapabilityOpenOptions::new();
+    options
+        .read(true)
+        .access_mode(DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    let source = source_directory.dir.open_with(source_name, &options)?;
+    rename_open_handle_noclobber(&source, &destination_directory.dir, destination_name)
+}
+
+#[cfg(all(not(unix), not(target_os = "windows")))]
+fn capability_rename_noclobber_io(
+    source_directory: &CapabilityDirectory,
+    source_name: &OsStr,
+    destination_directory: &CapabilityDirectory,
+    destination_name: &OsStr,
+) -> io::Result<()> {
+    match destination_directory.dir.symlink_metadata(destination_name) {
+        Ok(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "the destination already exists",
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    source_directory
+        .dir
+        .rename(source_name, &destination_directory.dir, destination_name)
 }
 
 fn resolve_save_destination(
@@ -925,6 +3099,13 @@ fn create_new_document(
     let file_name = clean_relative
         .file_name()
         .ok_or_else(|| CommandError::new(ErrorCode::InvalidPath, "Choose a document file name."))?;
+    let file_name_text = file_name.to_str().ok_or_else(|| {
+        CommandError::new(
+            ErrorCode::InvalidPath,
+            "Workspace paths must be valid Unicode.",
+        )
+    })?;
+    validate_mutation_name(file_name_text)?;
     let target = parent.join(file_name);
     ensure_target_absent(&target)?;
     persist_new_document(&target, &content)?;
@@ -1188,6 +3369,46 @@ fn validate_visible_name(name: &OsStr) -> CommandResult<()> {
     Ok(())
 }
 
+fn validate_mutation_name(name: &str) -> CommandResult<()> {
+    validate_visible_name(OsStr::new(name))?;
+    let mut components = Path::new(name).components();
+    if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+        return Err(CommandError::new(
+            ErrorCode::InvalidPath,
+            "Use a single file or folder name.",
+        ));
+    }
+    if name.ends_with([' ', '.'])
+        || name
+            .chars()
+            .any(|character| character <= '\u{1f}' || "<>:\"/\\|?*".contains(character))
+    {
+        return Err(CommandError::new(
+            ErrorCode::InvalidPath,
+            "This file or folder name is not supported.",
+        ));
+    }
+
+    let device_name = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+    let numbered_device = device_name
+        .strip_prefix("COM")
+        .or_else(|| device_name.strip_prefix("LPT"))
+        .is_some_and(|number| {
+            matches!(number, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+        });
+    if matches!(
+        device_name.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$"
+    ) || numbered_device
+    {
+        return Err(CommandError::new(
+            ErrorCode::InvalidPath,
+            "This file or folder name is reserved by the operating system.",
+        ));
+    }
+    Ok(())
+}
+
 fn ensure_no_symlink_components(root: &Path, relative: &Path) -> CommandResult<()> {
     let mut current = root.to_path_buf();
     for component in relative.components() {
@@ -1308,6 +3529,26 @@ fn conflict_error() -> CommandError {
     )
 }
 
+fn workspace_entry_conflict_error() -> CommandError {
+    CommandError::new(
+        ErrorCode::Conflict,
+        "This workspace entry changed on disk. Refresh the workspace and try again.",
+    )
+}
+
+fn mutation_conflict_after_rollback(message: &str, rollback: io::Result<()>) -> CommandError {
+    match rollback {
+        Ok(()) => CommandError::new(ErrorCode::Conflict, message),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            CommandError::new(ErrorCode::Conflict, message)
+        }
+        Err(error) => CommandError::new(
+            ErrorCode::Io,
+            format!("{message} Viva also could not roll back the partial change: {error}"),
+        ),
+    }
+}
+
 fn metadata_revision(metadata: &Metadata) -> CommandResult<MetadataRevision> {
     let modified = metadata
         .modified()
@@ -1425,6 +3666,12 @@ fn io_error(context: &str, error: std::io::Error) -> CommandError {
     CommandError::new(code, format!("{context}: {error}"))
 }
 
+fn sync_capability_directory_best_effort(directory: &CapabilityDir) {
+    if let Ok(directory) = directory.try_clone() {
+        let _ = directory.into_std_file().sync_all();
+    }
+}
+
 #[cfg(unix)]
 fn sync_parent_best_effort(parent: &Path) {
     let _ = File::open(parent).and_then(|directory| directory.sync_all());
@@ -1455,6 +3702,26 @@ mod tests {
         fs::write(path, content).unwrap();
     }
 
+    fn recover_staged_entry(
+        staging: &CapabilityDirectory,
+        source_name: &OsStr,
+        recovered_path: &Path,
+    ) -> CommandResult<()> {
+        let recovered_parent_path = recovered_path.parent().unwrap();
+        let recovered_parent = CapabilityDirectory {
+            dir: CapabilityDir::open_ambient_dir(recovered_parent_path, ambient_authority())
+                .unwrap(),
+            absolute_path: recovered_parent_path.to_path_buf(),
+        };
+        capability_rename_noclobber(
+            staging,
+            source_name,
+            &recovered_parent,
+            recovered_path.file_name().unwrap(),
+            "test Trash recovery failed",
+        )
+    }
+
     fn open_fixture(workspace: &TempDir) -> WorkspaceTree {
         open_workspace_core(OpenWorkspaceRequest {
             path: root_string(workspace),
@@ -1462,10 +3729,38 @@ mod tests {
         .unwrap()
     }
 
+    fn expected_document(workspace: &TempDir, relative_path: &str) -> ExpectedDocumentRevision {
+        let snapshot = read_document_core(DocumentPathRequest {
+            workspace_root: root_string(workspace),
+            relative_path: relative_path.to_owned(),
+        })
+        .unwrap();
+        ExpectedDocumentRevision {
+            relative_path: relative_path.to_owned(),
+            revision: snapshot.revision,
+        }
+    }
+
     fn document_paths(tree: &WorkspaceTree) -> Vec<String> {
         let mut paths = Vec::new();
         collect_document_paths(&tree.children, &mut paths);
         paths
+    }
+
+    #[cfg(unix)]
+    fn swap_parent_for_symlink_at_barrier(
+        parent: PathBuf,
+        held_parent: PathBuf,
+        outside: PathBuf,
+        barrier: Arc<Barrier>,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            use std::os::unix::fs::symlink;
+            barrier.wait();
+            fs::rename(parent.as_path(), held_parent).unwrap();
+            symlink(outside, parent).unwrap();
+            barrier.wait();
+        })
     }
 
     #[test]
@@ -1495,6 +3790,991 @@ mod tests {
         assert!(notes.children.iter().any(|entry| {
             entry.relative_path == "notes/image.png" && entry.kind == WorkspaceEntryKind::Image
         }));
+    }
+
+    #[test]
+    fn workspace_tree_keeps_visible_empty_directories() {
+        let workspace = tempdir().unwrap();
+        fs::create_dir_all(workspace.path().join("empty/nested")).unwrap();
+
+        let tree = open_fixture(&workspace);
+        let empty = tree
+            .children
+            .iter()
+            .find(|entry| entry.relative_path == "empty")
+            .expect("empty directory should remain visible");
+        assert_eq!(empty.kind, WorkspaceEntryKind::Directory);
+        assert_eq!(empty.children[0].relative_path, "empty/nested");
+        assert!(empty.children[0].children.is_empty());
+    }
+
+    #[test]
+    fn bounded_tree_walk_reports_deep_truncation_and_unions_expected_documents() {
+        let workspace = tempdir().unwrap();
+        let mut directory = workspace.path().to_path_buf();
+        let mut relative = PathBuf::new();
+        for depth in 0..MAX_TREE_DEPTH {
+            let name = format!("depth-{depth}");
+            directory.push(&name);
+            relative.push(&name);
+            fs::create_dir(&directory).unwrap();
+        }
+        directory.push("open.md");
+        relative.push("open.md");
+        fs::write(&directory, "deep").unwrap();
+
+        let mut complete = true;
+        let mut budget = TreeBudget { entries: 0 };
+        let entries = walk_directory_with_completeness(
+            workspace.path(),
+            workspace.path(),
+            0,
+            &mut budget,
+            &mut complete,
+        )
+        .unwrap();
+        assert!(!complete, "the bounded walk must disclose truncation");
+        let expected_source = format!("notes/{}", relative.to_string_lossy());
+        let (mappings, history_complete) = directory_history_mappings(
+            "notes",
+            "archive",
+            &entries,
+            complete,
+            std::slice::from_ref(&expected_source),
+        );
+        assert!(!history_complete);
+        assert!(mappings.contains(&(
+            expected_source,
+            format!("archive/{}", relative.to_string_lossy())
+        )));
+    }
+
+    #[test]
+    fn creates_root_and_nested_workspace_directories_without_clobbering() {
+        let workspace = tempdir().unwrap();
+
+        let root_directory = create_workspace_directory_core(CreateWorkspaceDirectoryRequest {
+            workspace_root: root_string(&workspace),
+            parent_relative_path: String::new(),
+            name: "Archive".to_owned(),
+        })
+        .unwrap();
+        assert_eq!(root_directory.kind, WorkspaceEntryKind::Directory);
+        assert_eq!(
+            root_directory.destination_relative_path.as_deref(),
+            Some("Archive")
+        );
+        assert!(workspace.path().join("Archive").is_dir());
+
+        let nested = create_workspace_directory_core(CreateWorkspaceDirectoryRequest {
+            workspace_root: root_string(&workspace),
+            parent_relative_path: "Archive".to_owned(),
+            name: "2026".to_owned(),
+        })
+        .unwrap();
+        assert_eq!(
+            nested.destination_relative_path.as_deref(),
+            Some("Archive/2026")
+        );
+
+        let collision = create_workspace_directory_core(CreateWorkspaceDirectoryRequest {
+            workspace_root: root_string(&workspace),
+            parent_relative_path: "Archive".to_owned(),
+            name: "2026".to_owned(),
+        })
+        .unwrap_err();
+        assert_eq!(collision.code, ErrorCode::AlreadyExists);
+    }
+
+    #[test]
+    fn workspace_directory_names_reject_paths_hidden_build_folders_and_windows_devices() {
+        let workspace = tempdir().unwrap();
+        for name in [
+            "../escape",
+            "a/b",
+            "a\\b",
+            ".hidden",
+            "node_modules",
+            "CON",
+            "LPT1.txt",
+            "trailing. ",
+        ] {
+            let error = create_workspace_directory_core(CreateWorkspaceDirectoryRequest {
+                workspace_root: root_string(&workspace),
+                parent_relative_path: String::new(),
+                name: name.to_owned(),
+            })
+            .unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidPath, "{name}");
+        }
+    }
+
+    #[test]
+    fn new_documents_use_portable_single_component_names() {
+        let workspace = tempdir().unwrap();
+        for relative_path in ["CON.md", "notes/a\\b.md", "notes/bad:name.md"] {
+            if relative_path.starts_with("notes/") {
+                fs::create_dir_all(workspace.path().join("notes")).unwrap();
+            }
+            let error = create_document_core(CreateDocumentRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: relative_path.to_owned(),
+                content: None,
+            })
+            .unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidPath, "{relative_path}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_mutations_never_follow_symlinked_entries_or_parents() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        write_fixture(&outside, "secret.md", b"secret");
+        symlink(outside.path(), workspace.path().join("linked-folder")).unwrap();
+        symlink(
+            outside.path().join("secret.md"),
+            workspace.path().join("linked.md"),
+        )
+        .unwrap();
+
+        let create_error = create_workspace_directory_core(CreateWorkspaceDirectoryRequest {
+            workspace_root: root_string(&workspace),
+            parent_relative_path: "linked-folder".to_owned(),
+            name: "escaped".to_owned(),
+        })
+        .unwrap_err();
+        assert_eq!(create_error.code, ErrorCode::SymlinkNotAllowed);
+
+        let rename_error = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "linked.md".to_owned(),
+            new_name: "renamed.md".to_owned(),
+            expected_documents: Vec::new(),
+        })
+        .unwrap_err();
+        assert_eq!(rename_error.code, ErrorCode::SymlinkNotAllowed);
+
+        let duplicate_error = duplicate_workspace_entry_core(DuplicateWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "linked.md".to_owned(),
+            expected_revision: None,
+        })
+        .unwrap_err();
+        assert_eq!(duplicate_error.code, ErrorCode::SymlinkNotAllowed);
+
+        let callback_called = std::cell::Cell::new(false);
+        let trash_error = trash_workspace_entry_core(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "linked-folder".to_owned(),
+                expected_documents: Vec::new(),
+            },
+            |_, _, _, _| {
+                callback_called.set(true);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(trash_error.code, ErrorCode::SymlinkNotAllowed);
+        assert!(!callback_called.get());
+        assert_eq!(
+            fs::read_to_string(outside.path().join("secret.md")).unwrap(),
+            "secret"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_rolls_back_if_the_parent_is_swapped_after_its_capability_is_opened() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        fs::create_dir(workspace.path().join("notes")).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let worker = swap_parent_for_symlink_at_barrier(
+            workspace.path().join("notes"),
+            workspace.path().join("held-notes"),
+            outside.path().to_path_buf(),
+            Arc::clone(&barrier),
+        );
+
+        let error = create_workspace_directory_core_with_hook(
+            CreateWorkspaceDirectoryRequest {
+                workspace_root: root_string(&workspace),
+                parent_relative_path: "notes".to_owned(),
+                name: "private".to_owned(),
+            },
+            || {
+                barrier.wait();
+                barrier.wait();
+            },
+        )
+        .unwrap_err();
+        worker.join().unwrap();
+
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert!(!outside.path().join("private").exists());
+        assert!(!workspace.path().join("held-notes/private").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rename_rolls_back_if_the_parent_is_swapped_after_its_capability_is_opened() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        write_fixture(&workspace, "notes/draft.md", b"draft");
+        write_fixture(&outside, "ready.md", b"outside");
+        let barrier = Arc::new(Barrier::new(2));
+        let worker = swap_parent_for_symlink_at_barrier(
+            workspace.path().join("notes"),
+            workspace.path().join("held-notes"),
+            outside.path().to_path_buf(),
+            Arc::clone(&barrier),
+        );
+
+        let error = rename_workspace_entry_core_with_hook(
+            RenameWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "notes/draft.md".to_owned(),
+                new_name: "ready.md".to_owned(),
+                expected_documents: vec![expected_document(&workspace, "notes/draft.md")],
+            },
+            || {
+                barrier.wait();
+                barrier.wait();
+            },
+        )
+        .unwrap_err();
+        worker.join().unwrap();
+
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert_eq!(
+            fs::read_to_string(workspace.path().join("held-notes/draft.md")).unwrap(),
+            "draft"
+        );
+        assert_eq!(
+            fs::read_to_string(outside.path().join("ready.md")).unwrap(),
+            "outside"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rename_rolls_back_the_exact_item_if_the_source_name_is_replaced_after_validation() {
+        let workspace = tempdir().unwrap();
+        write_fixture(&workspace, "draft.md", b"original");
+        let held = workspace.path().join("held-original.md");
+        let expected = expected_document(&workspace, "draft.md");
+
+        let error = rename_workspace_entry_core_with_hooks(
+            RenameWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "draft.md".to_owned(),
+                new_name: "ready.md".to_owned(),
+                expected_documents: vec![expected],
+            },
+            || {},
+            || {
+                fs::rename(workspace.path().join("draft.md"), &held).unwrap();
+                fs::write(workspace.path().join("draft.md"), b"replacement").unwrap();
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert_eq!(fs::read(&held).unwrap(), b"original");
+        assert_eq!(
+            fs::read(workspace.path().join("draft.md")).unwrap(),
+            b"replacement"
+        );
+        assert!(!workspace.path().join("ready.md").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn duplicate_rolls_back_if_the_parent_is_swapped_after_its_capability_is_opened() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        write_fixture(&workspace, "notes/draft.md", b"draft");
+        let barrier = Arc::new(Barrier::new(2));
+        let worker = swap_parent_for_symlink_at_barrier(
+            workspace.path().join("notes"),
+            workspace.path().join("held-notes"),
+            outside.path().to_path_buf(),
+            Arc::clone(&barrier),
+        );
+
+        let error = duplicate_workspace_entry_core_with_hook(
+            DuplicateWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "notes/draft.md".to_owned(),
+                expected_revision: Some(expected_document(&workspace, "notes/draft.md").revision),
+            },
+            || {
+                barrier.wait();
+                barrier.wait();
+            },
+        )
+        .unwrap_err();
+        worker.join().unwrap();
+
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert!(!workspace.path().join("held-notes/draft copy.md").exists());
+        assert!(!outside.path().join("draft copy.md").exists());
+        assert_eq!(
+            fs::read_to_string(workspace.path().join("held-notes/draft.md")).unwrap(),
+            "draft"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn duplicate_never_publishes_a_replaced_temporary_symlink() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        write_fixture(&workspace, "draft.md", b"draft");
+        let outside_file = outside.path().join("untouched.md");
+        fs::write(&outside_file, b"outside").unwrap();
+
+        let error = duplicate_workspace_entry_core_with_hooks(
+            DuplicateWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "draft.md".to_owned(),
+                expected_revision: Some(expected_document(&workspace, "draft.md").revision),
+            },
+            || {},
+            |parent, temporary_name| {
+                parent.remove_file(temporary_name).unwrap();
+                parent
+                    .symlink_contents(&outside_file, temporary_name)
+                    .unwrap();
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert!(!workspace.path().join("draft copy.md").exists());
+        assert_eq!(fs::read(outside_file).unwrap(), b"outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trash_stages_from_the_open_parent_without_touching_a_swapped_path() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let recovered = tempdir().unwrap();
+        write_fixture(&workspace, "notes/draft.md", b"draft");
+        write_fixture(&outside, "draft.md", b"outside");
+        let barrier = Arc::new(Barrier::new(2));
+        let worker = swap_parent_for_symlink_at_barrier(
+            workspace.path().join("notes"),
+            workspace.path().join("held-notes"),
+            outside.path().to_path_buf(),
+            Arc::clone(&barrier),
+        );
+        let recovered_path = recovered.path().join("draft.md");
+
+        let result = trash_workspace_entry_core_with_hook(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "notes/draft.md".to_owned(),
+                expected_documents: vec![expected_document(&workspace, "notes/draft.md")],
+            },
+            || {
+                barrier.wait();
+                barrier.wait();
+            },
+            |staging, source_name, _, _| {
+                assert_eq!(source_name, OsStr::new("draft.md"));
+                recover_staged_entry(staging, source_name, &recovered_path)
+            },
+        )
+        .unwrap();
+        worker.join().unwrap();
+
+        assert!(result.recoverable);
+        assert_eq!(fs::read_to_string(&recovered_path).unwrap(), "draft");
+        assert_eq!(
+            fs::read_to_string(outside.path().join("draft.md")).unwrap(),
+            "outside"
+        );
+        assert!(!workspace.path().join("held-notes/draft.md").exists());
+        assert!(fs::read_dir(workspace.path()).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".viva-trash-")
+        }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trash_rolls_back_a_replaced_source_after_the_last_identity_check() {
+        let workspace = tempdir().unwrap();
+        write_fixture(&workspace, "draft.md", b"original");
+        let held = workspace.path().join("held-original.md");
+        let expected = expected_document(&workspace, "draft.md");
+        let callback_called = std::cell::Cell::new(false);
+
+        let error = trash_workspace_entry_core_with_hooks(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "draft.md".to_owned(),
+                expected_documents: vec![expected],
+            },
+            || {},
+            || {
+                fs::rename(workspace.path().join("draft.md"), &held).unwrap();
+                fs::write(workspace.path().join("draft.md"), b"replacement").unwrap();
+            },
+            |_, _| {},
+            |_, _, _, _| {
+                callback_called.set(true);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert!(!callback_called.get());
+        assert_eq!(fs::read(&held).unwrap(), b"original");
+        assert_eq!(
+            fs::read(workspace.path().join("draft.md")).unwrap(),
+            b"replacement"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trash_rolls_back_a_staged_name_replaced_before_the_backend() {
+        let workspace = tempdir().unwrap();
+        write_fixture(&workspace, "draft.md", b"original");
+        let held = workspace.path().join("held-original.md");
+        let expected = expected_document(&workspace, "draft.md");
+        let callback_called = std::cell::Cell::new(false);
+
+        let error = trash_workspace_entry_core_with_hooks(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "draft.md".to_owned(),
+                expected_documents: vec![expected],
+            },
+            || {},
+            || {},
+            |staging, source_name| {
+                fs::rename(staging.absolute_path.join(source_name), &held).unwrap();
+                fs::write(staging.absolute_path.join(source_name), b"replacement").unwrap();
+            },
+            |_, _, _, _| {
+                callback_called.set(true);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert!(!callback_called.get());
+        assert_eq!(fs::read(&held).unwrap(), b"original");
+        assert_eq!(
+            fs::read(workspace.path().join("draft.md")).unwrap(),
+            b"replacement"
+        );
+        assert!(fs::read_dir(workspace.path()).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".viva-trash-")
+        }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trash_backend_uses_the_open_staging_directory_after_its_name_is_rebound() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let recovered = tempdir().unwrap();
+        write_fixture(&workspace, "draft.md", b"inside");
+        write_fixture(&outside, "draft.md", b"outside");
+        let recovered_path = recovered.path().join("draft.md");
+        let held_staging = workspace.path().join("held-staging");
+        let mut rebound_path = None;
+
+        let result = trash_workspace_entry_core_with_hooks(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "draft.md".to_owned(),
+                expected_documents: vec![expected_document(&workspace, "draft.md")],
+            },
+            || {},
+            || {},
+            |staging, _| {
+                let original_path = staging.absolute_path.clone();
+                fs::rename(&original_path, &held_staging).unwrap();
+                symlink(outside.path(), &original_path).unwrap();
+                rebound_path = Some(original_path);
+            },
+            |staging, source_name, _, _| {
+                recover_staged_entry(staging, source_name, &recovered_path)
+            },
+        )
+        .unwrap();
+
+        assert!(result.recoverable);
+        assert_eq!(fs::read(&recovered_path).unwrap(), b"inside");
+        assert_eq!(
+            fs::read(outside.path().join("draft.md")).unwrap(),
+            b"outside"
+        );
+        fs::remove_file(rebound_path.unwrap()).unwrap();
+        fs::remove_dir(held_staging).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_system_trash_uses_nsfilemanager_without_finder_permissions() {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        assert!(matches!(
+            macos_nsfilemanager_trash_context().delete_method(),
+            DeleteMethod::NsFileManager
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_trash_adapter_requires_disappearance_and_rolls_back_backend_errors() {
+        let unchanged = tempdir().unwrap();
+        write_fixture(&unchanged, "draft.md", b"unchanged");
+        let unchanged_error = trash_workspace_entry_core(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&unchanged),
+                relative_path: "draft.md".to_owned(),
+                expected_documents: vec![expected_document(&unchanged, "draft.md")],
+            },
+            |staging, source_name, kind, identity| {
+                let path = capability_directory_absolute_path(staging)?;
+                move_staged_entry_with_path_trash_using(
+                    staging,
+                    source_name,
+                    kind,
+                    identity,
+                    &path,
+                    |secured_path| {
+                        assert!(secured_path.is_file());
+                        Ok(())
+                    },
+                )
+            },
+        )
+        .unwrap_err();
+        assert_eq!(unchanged_error.code, ErrorCode::Conflict);
+        assert_eq!(
+            fs::read(unchanged.path().join("draft.md")).unwrap(),
+            b"unchanged"
+        );
+
+        let failed = tempdir().unwrap();
+        write_fixture(&failed, "draft.md", b"failed");
+        let failed_error = trash_workspace_entry_core(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&failed),
+                relative_path: "draft.md".to_owned(),
+                expected_documents: vec![expected_document(&failed, "draft.md")],
+            },
+            |staging, source_name, kind, identity| {
+                let path = capability_directory_absolute_path(staging)?;
+                move_staged_entry_with_path_trash_using(
+                    staging,
+                    source_name,
+                    kind,
+                    identity,
+                    &path,
+                    |_| Err("synthetic NSFileManager failure".to_owned()),
+                )
+            },
+        )
+        .unwrap_err();
+        assert_eq!(failed_error.code, ErrorCode::Io);
+        assert_eq!(fs::read(failed.path().join("draft.md")).unwrap(), b"failed");
+
+        let removed = tempdir().unwrap();
+        write_fixture(&removed, "draft.md", b"removed");
+        let mutation = trash_workspace_entry_core(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&removed),
+                relative_path: "draft.md".to_owned(),
+                expected_documents: vec![expected_document(&removed, "draft.md")],
+            },
+            |staging, source_name, kind, identity| {
+                let path = capability_directory_absolute_path(staging)?;
+                move_staged_entry_with_path_trash_using(
+                    staging,
+                    source_name,
+                    kind,
+                    identity,
+                    &path,
+                    |secured_path| fs::remove_file(secured_path).map_err(|error| error.to_string()),
+                )
+            },
+        )
+        .unwrap();
+        assert!(mutation.recoverable);
+        assert!(!removed.path().join("draft.md").exists());
+    }
+
+    #[test]
+    fn renames_documents_images_and_directories_in_place_without_overwriting() {
+        let workspace = tempdir().unwrap();
+        write_fixture(&workspace, "draft.md", b"draft");
+        write_fixture(&workspace, "photo.png", b"png");
+        write_fixture(&workspace, "notes/inside.txt", b"inside");
+        write_fixture(&workspace, "taken.md", b"taken");
+
+        let renamed_document = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "draft.md".to_owned(),
+            new_name: "ready.markdown".to_owned(),
+            expected_documents: vec![expected_document(&workspace, "draft.md")],
+        })
+        .unwrap();
+        assert_eq!(
+            renamed_document.source_relative_path.as_deref(),
+            Some("draft.md")
+        );
+        assert_eq!(
+            renamed_document.destination_relative_path.as_deref(),
+            Some("ready.markdown")
+        );
+        assert_eq!(
+            fs::read_to_string(workspace.path().join("ready.markdown")).unwrap(),
+            "draft"
+        );
+
+        let renamed_image = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "photo.png".to_owned(),
+            new_name: "cover.PNG".to_owned(),
+            expected_documents: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(renamed_image.kind, WorkspaceEntryKind::Image);
+        assert!(workspace.path().join("cover.PNG").is_file());
+
+        let renamed_directory = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "notes".to_owned(),
+            new_name: "archive".to_owned(),
+            expected_documents: vec![expected_document(&workspace, "notes/inside.txt")],
+        })
+        .unwrap();
+        assert_eq!(
+            renamed_directory.destination_relative_path.as_deref(),
+            Some("archive")
+        );
+        assert!(workspace.path().join("archive/inside.txt").is_file());
+
+        let collision = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "ready.markdown".to_owned(),
+            new_name: "taken.md".to_owned(),
+            expected_documents: vec![expected_document(&workspace, "ready.markdown")],
+        })
+        .unwrap_err();
+        assert_eq!(collision.code, ErrorCode::AlreadyExists);
+        assert_eq!(
+            fs::read_to_string(workspace.path().join("taken.md")).unwrap(),
+            "taken"
+        );
+        assert!(workspace.path().join("ready.markdown").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rename_rejects_a_distinct_hardlink_instead_of_treating_it_as_case_only() {
+        let workspace = tempdir().unwrap();
+        write_fixture(&workspace, "draft.md", b"draft");
+        fs::hard_link(
+            workspace.path().join("draft.md"),
+            workspace.path().join("ready.md"),
+        )
+        .unwrap();
+
+        let error = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "draft.md".to_owned(),
+            new_name: "ready.md".to_owned(),
+            expected_documents: vec![expected_document(&workspace, "draft.md")],
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::AlreadyExists);
+        assert_eq!(
+            fs::read(workspace.path().join("draft.md")).unwrap(),
+            b"draft"
+        );
+        assert_eq!(
+            fs::read(workspace.path().join("ready.md")).unwrap(),
+            b"draft"
+        );
+    }
+
+    #[test]
+    fn case_only_rename_uses_two_names_when_the_filesystem_aliases_case() {
+        let workspace = tempdir().unwrap();
+        write_fixture(&workspace, "draft.md", b"draft");
+        if !workspace.path().join("DRAFT.md").exists() {
+            return;
+        }
+
+        let result = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "draft.md".to_owned(),
+            new_name: "DRAFT.md".to_owned(),
+            expected_documents: vec![expected_document(&workspace, "draft.md")],
+        })
+        .unwrap();
+
+        assert_eq!(
+            result.destination_relative_path.as_deref(),
+            Some("DRAFT.md")
+        );
+        let exact_names: Vec<_> = fs::read_dir(workspace.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert!(exact_names.contains(&OsString::from("DRAFT.md")));
+        assert!(!exact_names.contains(&OsString::from("draft.md")));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_workspace_rename_is_atomic_and_never_replaces_an_existing_target() {
+        let workspace = tempdir().unwrap();
+        let source = workspace.path().join("source.md");
+        let destination = workspace.path().join("destination.md");
+        fs::write(&source, "source").unwrap();
+        fs::write(&destination, "destination").unwrap();
+        let directory = CapabilityDirectory {
+            dir: CapabilityDir::open_ambient_dir(workspace.path(), ambient_authority()).unwrap(),
+            absolute_path: workspace.path().to_path_buf(),
+        };
+
+        let error = capability_rename_noclobber_io(
+            &directory,
+            OsStr::new("source.md"),
+            &directory,
+            OsStr::new("destination.md"),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&source).unwrap(), "source");
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "destination");
+
+        fs::remove_file(&destination).unwrap();
+        capability_rename_noclobber_io(
+            &directory,
+            OsStr::new("source.md"),
+            &directory,
+            OsStr::new("destination.md"),
+        )
+        .unwrap();
+        assert!(!source.exists());
+        assert_eq!(fs::read_to_string(destination).unwrap(), "source");
+    }
+
+    #[test]
+    fn rename_rejects_stale_open_documents_and_image_format_changes() {
+        let workspace = tempdir().unwrap();
+        write_fixture(&workspace, "notes/open.md", b"original");
+        write_fixture(&workspace, "photo.png", b"png");
+        let stale = expected_document(&workspace, "notes/open.md");
+        fs::write(workspace.path().join("notes/open.md"), "external").unwrap();
+
+        let conflict = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "notes".to_owned(),
+            new_name: "renamed".to_owned(),
+            expected_documents: vec![stale],
+        })
+        .unwrap_err();
+        assert_eq!(conflict.code, ErrorCode::Conflict);
+        assert!(workspace.path().join("notes/open.md").is_file());
+
+        let format_change = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "photo.png".to_owned(),
+            new_name: "photo.jpg".to_owned(),
+            expected_documents: Vec::new(),
+        })
+        .unwrap_err();
+        assert_eq!(format_change.code, ErrorCode::UnsupportedFileType);
+        assert!(workspace.path().join("photo.png").is_file());
+
+        let unrelated_revision = expected_document(&workspace, "notes/open.md");
+        let unrelated = rename_workspace_entry_core(RenameWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "photo.png".to_owned(),
+            new_name: "cover.png".to_owned(),
+            expected_documents: vec![unrelated_revision],
+        })
+        .unwrap_err();
+        assert_eq!(unrelated.code, ErrorCode::InvalidPath);
+
+        assert_eq!(
+            renamed_descendant_path("notes", "archive", "notes/deep/日记.md").as_deref(),
+            Some("archive/deep/日记.md")
+        );
+        assert!(renamed_descendant_path("notes", "archive", "not-notes/a.md").is_none());
+    }
+
+    #[test]
+    fn duplicates_files_with_safe_collision_names_and_exact_bytes() {
+        let workspace = tempdir().unwrap();
+        let image = [0_u8, 255, 42, 10];
+        write_fixture(&workspace, "photo.png", &image);
+        write_fixture(&workspace, "note.md", b"note");
+
+        let first = duplicate_workspace_entry_core(DuplicateWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "photo.png".to_owned(),
+            expected_revision: None,
+        })
+        .unwrap();
+        let second = duplicate_workspace_entry_core(DuplicateWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "photo.png".to_owned(),
+            expected_revision: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            first.destination_relative_path.as_deref(),
+            Some("photo copy.png")
+        );
+        assert_eq!(
+            second.destination_relative_path.as_deref(),
+            Some("photo copy 2.png")
+        );
+        assert_eq!(
+            fs::read(workspace.path().join("photo copy.png")).unwrap(),
+            image
+        );
+        assert_eq!(
+            fs::read(workspace.path().join("photo copy 2.png")).unwrap(),
+            image
+        );
+
+        let document_copy = duplicate_workspace_entry_core(DuplicateWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "note.md".to_owned(),
+            expected_revision: Some(expected_document(&workspace, "note.md").revision),
+        })
+        .unwrap();
+        assert_eq!(
+            document_copy.destination_relative_path.as_deref(),
+            Some("note copy.md")
+        );
+        assert_eq!(
+            fs::read_to_string(workspace.path().join("note copy.md")).unwrap(),
+            "note"
+        );
+        assert!(fs::read_dir(workspace.path()).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".viva-")
+        }));
+    }
+
+    #[test]
+    fn duplicate_rejects_directories_and_stale_document_revisions() {
+        let workspace = tempdir().unwrap();
+        write_fixture(&workspace, "notes/open.md", b"original");
+        let stale = expected_document(&workspace, "notes/open.md").revision;
+        fs::write(workspace.path().join("notes/open.md"), "external").unwrap();
+
+        let directory = duplicate_workspace_entry_core(DuplicateWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "notes".to_owned(),
+            expected_revision: None,
+        })
+        .unwrap_err();
+        assert_eq!(directory.code, ErrorCode::NotFile);
+
+        let conflict = duplicate_workspace_entry_core(DuplicateWorkspaceEntryRequest {
+            workspace_root: root_string(&workspace),
+            relative_path: "notes/open.md".to_owned(),
+            expected_revision: Some(stale),
+        })
+        .unwrap_err();
+        assert_eq!(conflict.code, ErrorCode::Conflict);
+        assert!(!workspace.path().join("notes/open copy.md").exists());
+    }
+
+    #[test]
+    fn trash_uses_only_the_recoverable_backend_and_checks_open_revisions_first() {
+        let workspace = tempdir().unwrap();
+        let recovered = tempdir().unwrap();
+        write_fixture(&workspace, "notes/open.md", b"original");
+        let expected = expected_document(&workspace, "notes/open.md");
+        let recovered_path = recovered.path().join("notes");
+
+        let trashed = trash_workspace_entry_core(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "notes".to_owned(),
+                expected_documents: vec![expected],
+            },
+            |staging, source_name, _, _| {
+                recover_staged_entry(staging, source_name, &recovered_path)
+            },
+        )
+        .unwrap();
+        assert!(trashed.recoverable);
+        assert_eq!(trashed.source_relative_path.as_deref(), Some("notes"));
+        assert!(recovered_path.join("open.md").is_file());
+
+        write_fixture(&workspace, "keep.md", b"keep");
+        let failed = trash_workspace_entry_core(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "keep.md".to_owned(),
+                expected_documents: vec![expected_document(&workspace, "keep.md")],
+            },
+            |_, _, _, _| Err(CommandError::new(ErrorCode::Io, "system trash unavailable")),
+        )
+        .unwrap_err();
+        assert_eq!(failed.code, ErrorCode::Io);
+        assert_eq!(
+            fs::read_to_string(workspace.path().join("keep.md")).unwrap(),
+            "keep"
+        );
+
+        let stale = expected_document(&workspace, "keep.md");
+        fs::write(workspace.path().join("keep.md"), "external").unwrap();
+        let callback_called = std::cell::Cell::new(false);
+        let conflict = trash_workspace_entry_core(
+            TrashWorkspaceEntryRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: "keep.md".to_owned(),
+                expected_documents: vec![stale],
+            },
+            |_, _, _, _| {
+                callback_called.set(true);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(conflict.code, ErrorCode::Conflict);
+        assert!(!callback_called.get());
+        assert!(workspace.path().join("keep.md").is_file());
     }
 
     #[test]

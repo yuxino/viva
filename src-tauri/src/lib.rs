@@ -6,6 +6,7 @@ mod menu;
 mod models;
 mod quit_guard;
 mod runtime;
+mod secure_fs;
 
 pub use models::*;
 use tauri::Manager;
@@ -45,9 +46,16 @@ pub fn run() {
             filesystem::read_document,
             filesystem::write_document,
             filesystem::create_document,
+            filesystem::create_workspace_directory,
+            filesystem::rename_workspace_entry,
+            filesystem::duplicate_workspace_entry,
+            filesystem::trash_workspace_entry,
             filesystem::inspect_save_destination,
             filesystem::save_document_as,
             filesystem::search_workspace,
+            media::create_workspace_image,
+            media::commit_workspace_image,
+            media::cancel_workspace_image,
             media::read_workspace_image,
             menu::set_menu_language,
             quit_guard::get_quit_guard_session,

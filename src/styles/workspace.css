@@ -268,6 +268,7 @@
 
 .workspace-sidebar__actions { display: flex; align-items: center; }
 .workspace-sidebar__body { min-width: 0; min-height: 0; overflow: auto; padding: var(--space-2) 0; }
+.workspace-sidebar__body:has(> .file-tree) { overflow: hidden; }
 .workspace-sidebar__footer { border-top: 1px solid var(--color-border); }
 
 .sidebar-divider {
@@ -507,9 +508,10 @@
   font-size: var(--font-size-2xs);
 }
 
-.file-tree { min-width: 0; min-height: 0; overflow: auto; }
+.file-tree { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: auto; }
 .file-tree__list,
 .file-tree__group { padding: 0; margin: 0; list-style: none; }
+.file-tree__list.is-virtualized { position: relative; contain: layout style paint; }
 
 .file-tree__item {
   position: relative;
@@ -519,6 +521,7 @@
   height: 1.75rem;
   align-items: center;
   padding: 0 var(--space-2);
+  padding-inline-start: var(--file-tree-indent, var(--space-2));
   color: var(--color-ink-secondary);
   background: transparent;
   border-radius: 0;
@@ -526,9 +529,6 @@
   text-align: start;
 }
 
-.file-tree__group .file-tree__item { padding-inline-start: 1.15rem; }
-.file-tree__group .file-tree__group .file-tree__item { padding-inline-start: 2rem; }
-.file-tree__group .file-tree__group .file-tree__group .file-tree__item { padding-inline-start: 2.85rem; }
 .file-tree__item:hover { color: var(--color-ink); background: var(--color-hover); }
 
 .file-tree__item.is-active {
@@ -612,6 +612,11 @@
 }
 
 .search-panel__result-target:hover { color: var(--color-ink); background: var(--color-hover); }
+
+.search-panel__result-target.is-active {
+  color: var(--color-ink);
+  background: var(--color-selected);
+}
 .search-panel__result-path { overflow: hidden; color: var(--color-ink); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .search-panel__result-location { color: var(--color-ink-muted); font-variant-numeric: tabular-nums; }
 .search-panel__result-preview { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

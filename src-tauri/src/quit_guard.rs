@@ -162,7 +162,8 @@ pub fn set_quit_guard_ready(
 }
 
 pub fn reset_frontend_session<R: Runtime>(app: &tauri::AppHandle<R>) {
-    QUIT_GUARD_STATE.start_new_frontend_session();
+    let session = QUIT_GUARD_STATE.start_new_frontend_session();
+    crate::media::reset_frontend_image_session(session);
     let _ = cancel_application_quit_inner(app);
 }
 

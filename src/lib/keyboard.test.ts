@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getAppShortcutLabels, getVivaPlatform } from "./keyboard";
+import {
+  getAppShortcutLabels,
+  getVivaPlatform,
+  isImeKeyEvent,
+} from "./keyboard";
 
 afterEach(() => {
   delete document.documentElement.dataset.platform;
@@ -18,6 +22,8 @@ describe("platform shortcut labels", () => {
     expect(labels.save).toBe("⌘S");
     expect(labels.toggleSidebar).toBe("⇧⌘B");
     expect(labels.focusMode).toBe("⇧⌘↵");
+    expect(labels.find).toBe("⌘F");
+    expect(labels.replace).toBe("⌥⌘F");
     expect(labels.view(3)).toBe("⌘3");
   });
 
@@ -33,6 +39,16 @@ describe("platform shortcut labels", () => {
     expect(labels.save).toBe("Ctrl+S");
     expect(labels.toggleSidebar).toBe("Shift+Ctrl+B");
     expect(labels.focusMode).toBe("Shift+Ctrl+Enter");
+    expect(labels.find).toBe("Ctrl+F");
+    expect(labels.replace).toBe("Ctrl+H");
     expect(labels.view(3)).toBe("Ctrl+3");
+  });
+});
+
+describe("IME key detection", () => {
+  it("recognizes active and post-composition WebKit events", () => {
+    expect(isImeKeyEvent({ isComposing: true, keyCode: 13 })).toBe(true);
+    expect(isImeKeyEvent({ isComposing: false, keyCode: 229 })).toBe(true);
+    expect(isImeKeyEvent({ isComposing: false, keyCode: 13 })).toBe(false);
   });
 });

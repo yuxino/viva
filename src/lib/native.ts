@@ -3,6 +3,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
   DocumentSnapshot,
+  FileKind,
   FileRevision,
   WorkspaceTree,
 } from "../domain/workspace";
@@ -41,6 +42,42 @@ interface WriteDocumentRequest extends DocumentRequest {
   expectedRevision: FileRevision;
 }
 
+interface CreateDocumentRequest extends DocumentRequest {
+  content?: string;
+}
+
+interface CreateWorkspaceDirectoryRequest {
+  workspaceRoot: string;
+  parentRelativePath: string;
+  name: string;
+}
+
+export interface ExpectedDocumentRevision {
+  relativePath: string;
+  revision: FileRevision;
+}
+
+interface RenameWorkspaceEntryRequest extends DocumentRequest {
+  newName: string;
+  expectedDocuments: ExpectedDocumentRevision[];
+}
+
+interface DuplicateWorkspaceEntryRequest extends DocumentRequest {
+  expectedRevision?: FileRevision;
+}
+
+interface TrashWorkspaceEntryRequest extends DocumentRequest {
+  expectedDocuments: ExpectedDocumentRevision[];
+}
+
+export interface WorkspaceEntryMutation {
+  kind: FileKind;
+  sourceRelativePath?: string;
+  destinationRelativePath?: string;
+  recoverable: boolean;
+  historyWarningCode?: "HISTORY_UNAVAILABLE";
+}
+
 interface SaveDocumentAsRequest {
   workspaceRoot: string;
   destinationPath: string;
@@ -62,6 +99,30 @@ interface SearchWorkspaceRequest {
   workspaceRoot: string;
   query: string;
   maxResults?: number;
+}
+
+interface CreateWorkspaceImageRequest {
+  workspaceRoot: string;
+  documentRelativePath: string;
+  dataBase64: string;
+  leaseId: string;
+  session: number;
+}
+
+interface SettleWorkspaceImageRequest {
+  workspaceRoot: string;
+  leaseId: string;
+  session: number;
+}
+
+export interface CreatedWorkspaceImage {
+  relativePath: string;
+  markdownPath: string;
+  format: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  deduplicated: boolean;
 }
 
 interface ReadDocumentHistoryRequest extends DocumentRequest {
@@ -88,26 +149,33 @@ function getNativeStateSession(): Promise<number> {
   return nativeStateSessionPromise;
 }
 
-async function setNativeBooleanState(
-  command: "set_quit_guard_ready" | "set_has_unsaved_changes",
-  key: "ready" | "dirty",
-  value: boolean,
-): Promise<boolean> {
+async function withNativeStateSession<T>(
+  operation: (session: number) => Promise<T>,
+): Promise<T> {
   const sessionPromise = getNativeStateSession();
-  const sequence = nextNativeStateSequence();
   try {
-    const session = await sessionPromise;
-    return await invoke<boolean>(command, {
-      [key]: value,
-      session,
-      sequence,
-    });
+    return await operation(await sessionPromise);
   } catch (error) {
     if (nativeStateSessionPromise === sessionPromise) {
       nativeStateSessionPromise = undefined;
     }
     throw error;
   }
+}
+
+async function setNativeBooleanState(
+  command: "set_quit_guard_ready" | "set_has_unsaved_changes",
+  key: "ready" | "dirty",
+  value: boolean,
+): Promise<boolean> {
+  const sequence = nextNativeStateSequence();
+  return withNativeStateSession((session) =>
+    invoke<boolean>(command, {
+      [key]: value,
+      session,
+      sequence,
+    }),
+  );
 }
 
 export function setQuitGuardReady(ready: boolean): Promise<boolean> {
@@ -191,6 +259,70 @@ export function writeDocument(
   return invoke("write_document", { request });
 }
 
+export function createDocument(
+  workspaceRoot: string,
+  relativePath: string,
+  content?: string,
+): Promise<DocumentSnapshot> {
+  const request: CreateDocumentRequest = { workspaceRoot, relativePath };
+  if (content !== undefined) request.content = content;
+  return invoke("create_document", { request });
+}
+
+export function createWorkspaceDirectory(
+  workspaceRoot: string,
+  parentRelativePath: string,
+  name: string,
+): Promise<WorkspaceEntryMutation> {
+  const request: CreateWorkspaceDirectoryRequest = {
+    workspaceRoot,
+    parentRelativePath,
+    name,
+  };
+  return invoke("create_workspace_directory", { request });
+}
+
+export function renameWorkspaceEntry(
+  workspaceRoot: string,
+  relativePath: string,
+  newName: string,
+  expectedDocuments: readonly ExpectedDocumentRevision[] = [],
+): Promise<WorkspaceEntryMutation> {
+  const request: RenameWorkspaceEntryRequest = {
+    workspaceRoot,
+    relativePath,
+    newName,
+    expectedDocuments: [...expectedDocuments],
+  };
+  return invoke("rename_workspace_entry", { request });
+}
+
+export function duplicateWorkspaceEntry(
+  workspaceRoot: string,
+  relativePath: string,
+  expectedRevision?: FileRevision,
+): Promise<WorkspaceEntryMutation> {
+  const request: DuplicateWorkspaceEntryRequest = {
+    workspaceRoot,
+    relativePath,
+  };
+  if (expectedRevision !== undefined) request.expectedRevision = expectedRevision;
+  return invoke("duplicate_workspace_entry", { request });
+}
+
+export function trashWorkspaceEntry(
+  workspaceRoot: string,
+  relativePath: string,
+  expectedDocuments: readonly ExpectedDocumentRevision[] = [],
+): Promise<WorkspaceEntryMutation> {
+  const request: TrashWorkspaceEntryRequest = {
+    workspaceRoot,
+    relativePath,
+    expectedDocuments: [...expectedDocuments],
+  };
+  return invoke("trash_workspace_entry", { request });
+}
+
 export function saveDocumentAs(
   workspaceRoot: string,
   destinationPath: string,
@@ -224,6 +356,88 @@ export function searchWorkspace(
 ): Promise<SearchMatch[]> {
   const request: SearchWorkspaceRequest = { workspaceRoot, query, maxResults };
   return invoke("search_workspace", { request });
+}
+
+export const MAX_WORKSPACE_IMAGE_BYTES = 24 * 1024 * 1024;
+
+// A multiple of three keeps padding exclusive to the final Base64 chunk.
+const BASE64_CHUNK_BYTES = 3 * 8_192;
+
+export function assertWorkspaceImageSize(sizeBytes: number): void {
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+    throw new RangeError("The pasted image size is not valid.");
+  }
+  if (sizeBytes > MAX_WORKSPACE_IMAGE_BYTES) {
+    throw new RangeError("Pasted images are limited to 24 MiB.");
+  }
+}
+
+export function encodeStandardBase64(bytes: Uint8Array): string {
+  assertWorkspaceImageSize(bytes.byteLength);
+  const encodedChunks: string[] = [];
+
+  for (let offset = 0; offset < bytes.byteLength; offset += BASE64_CHUNK_BYTES) {
+    const chunk = bytes.subarray(
+      offset,
+      Math.min(offset + BASE64_CHUNK_BYTES, bytes.byteLength),
+    );
+    let binary = "";
+    for (let index = 0; index < chunk.byteLength; index += 1) {
+      binary += String.fromCharCode(chunk[index] ?? 0);
+    }
+    encodedChunks.push(btoa(binary));
+  }
+
+  return encodedChunks.join("");
+}
+
+export async function createWorkspaceImage(
+  workspaceRoot: string,
+  documentRelativePath: string,
+  bytes: Uint8Array,
+  leaseId: string,
+): Promise<CreatedWorkspaceImage> {
+  assertWorkspaceImageSize(bytes.byteLength);
+  const dataBase64 = encodeStandardBase64(bytes);
+  return withNativeStateSession((session) => {
+    const request: CreateWorkspaceImageRequest = {
+      workspaceRoot,
+      documentRelativePath,
+      dataBase64,
+      leaseId,
+      session,
+    };
+    return invoke("create_workspace_image", { request });
+  });
+}
+
+function settleWorkspaceImage(
+  command: "commit_workspace_image" | "cancel_workspace_image",
+  workspaceRoot: string,
+  leaseId: string,
+): Promise<void> {
+  return withNativeStateSession((session) => {
+    const request: SettleWorkspaceImageRequest = {
+      workspaceRoot,
+      leaseId,
+      session,
+    };
+    return invoke(command, { request });
+  });
+}
+
+export function commitWorkspaceImage(
+  workspaceRoot: string,
+  leaseId: string,
+): Promise<void> {
+  return settleWorkspaceImage("commit_workspace_image", workspaceRoot, leaseId);
+}
+
+export function cancelWorkspaceImage(
+  workspaceRoot: string,
+  leaseId: string,
+): Promise<void> {
+  return settleWorkspaceImage("cancel_workspace_image", workspaceRoot, leaseId);
 }
 
 export function listDocumentHistory(

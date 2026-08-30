@@ -1,6 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HistoryPanel, type HistoryEntry } from "./HistoryPanel";
+import {
+  HistoryLineDiff,
+  HistoryPanel,
+  type HistoryEntry,
+} from "./HistoryPanel";
 import { createHistoryLineDiff } from "./diff";
 
 afterEach(cleanup);
@@ -39,6 +43,26 @@ describe("createHistoryLineDiff", () => {
       ["removed", "gamma"],
     ]);
     expect(result.summary).toEqual({ additions: 1, removals: 1, unchanged: 2 });
+  });
+
+  it("brings the first changed line into view", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    render(
+      <HistoryLineDiff
+        result={createHistoryLineDiff(
+          ["one", "two", "three", "old"].join("\n"),
+          ["one", "two", "three", "new"].join("\n"),
+        )}
+      />,
+    );
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledOnce());
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "center",
+      inline: "nearest",
+    });
   });
 });
 

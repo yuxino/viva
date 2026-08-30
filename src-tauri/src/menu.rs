@@ -14,6 +14,8 @@ pub const FILE_SAVE_AS: &str = "file.saveAs";
 pub const FILE_CLOSE_TAB: &str = "file.closeTab";
 pub const EDIT_UNDO: &str = "edit.undo";
 pub const EDIT_REDO: &str = "edit.redo";
+pub const EDIT_FIND: &str = "edit.find";
+pub const EDIT_REPLACE: &str = "edit.replace";
 pub const VIEW_TOGGLE_SIDEBAR: &str = "view.toggleSidebar";
 pub const VIEW_TOGGLE_FOCUS: &str = "view.toggleFocus";
 pub const VIEW_LIVE: &str = "view.live";
@@ -33,6 +35,7 @@ struct MenuLabels {
     copy: &'static str,
     cut: &'static str,
     edit: &'static str,
+    find: &'static str,
     file: &'static str,
     focus: &'static str,
     help: &'static str,
@@ -49,6 +52,7 @@ struct MenuLabels {
     paste: &'static str,
     preview: &'static str,
     redo: &'static str,
+    replace: &'static str,
     save: &'static str,
     save_as: &'static str,
     select_all: &'static str,
@@ -80,6 +84,7 @@ fn localized_labels(language: &str) -> MenuLabels {
             copy: "复制",
             cut: "剪切",
             edit: "编辑",
+            find: "查找…",
             file: "文件",
             focus: "切换专注模式",
             help: "帮助",
@@ -96,6 +101,7 @@ fn localized_labels(language: &str) -> MenuLabels {
             paste: "粘贴",
             preview: "预览",
             redo: "重做",
+            replace: "查找并替换…",
             save: "保存",
             save_as: "另存为…",
             select_all: "全选",
@@ -121,6 +127,7 @@ fn localized_labels(language: &str) -> MenuLabels {
             copy: "Copy",
             cut: "Cut",
             edit: "Edit",
+            find: "Find…",
             file: "File",
             focus: "Toggle Focus Mode",
             help: "Help",
@@ -137,6 +144,7 @@ fn localized_labels(language: &str) -> MenuLabels {
             paste: "Paste",
             preview: "Preview",
             redo: "Redo",
+            replace: "Find and Replace…",
             save: "Save",
             save_as: "Save As…",
             select_all: "Select All",
@@ -236,12 +244,20 @@ fn edit_menu<R: Runtime>(app: &AppHandle<R>, labels: MenuLabels) -> tauri::Resul
         builder.items(&[&undo, &redo])
     };
 
+    let find = menu_item(app, EDIT_FIND, labels.find, "CmdOrCtrl+F")?;
+    #[cfg(target_os = "macos")]
+    let replace = menu_item(app, EDIT_REPLACE, labels.replace, "CmdOrCtrl+Alt+F")?;
+    #[cfg(not(target_os = "macos"))]
+    let replace = menu_item(app, EDIT_REPLACE, labels.replace, "CmdOrCtrl+H")?;
+
     builder
         .separator()
         .cut_with_text(labels.cut)
         .copy_with_text(labels.copy)
         .paste_with_text(labels.paste)
         .select_all_with_text(labels.select_all)
+        .separator()
+        .items(&[&find, &replace])
         .build()
 }
 
@@ -382,6 +398,8 @@ fn is_custom_menu_id(id: &str) -> bool {
             | FILE_CLOSE_TAB
             | EDIT_UNDO
             | EDIT_REDO
+            | EDIT_FIND
+            | EDIT_REPLACE
             | VIEW_TOGGLE_SIDEBAR
             | VIEW_TOGGLE_FOCUS
             | VIEW_LIVE
@@ -408,6 +426,8 @@ mod tests {
             FILE_CLOSE_TAB,
             EDIT_UNDO,
             EDIT_REDO,
+            EDIT_FIND,
+            EDIT_REPLACE,
             VIEW_TOGGLE_SIDEBAR,
             VIEW_TOGGLE_FOCUS,
             VIEW_LIVE,
@@ -429,6 +449,8 @@ mod tests {
         assert_eq!(labels.file, "文件");
         assert_eq!(labels.edit, "编辑");
         assert_eq!(labels.undo, "撤销");
+        assert_eq!(labels.find, "查找…");
+        assert_eq!(labels.replace, "查找并替换…");
         assert_eq!(labels.copy, "复制");
         assert_eq!(labels.live, "即时编辑");
         assert_eq!(labels.new_window, "新建窗口");

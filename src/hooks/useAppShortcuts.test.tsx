@@ -10,6 +10,7 @@ function createHandlers(): AppShortcutHandlers {
     closeTab: vi.fn(),
     commandPalette: vi.fn(),
     editView: vi.fn(),
+    find: vi.fn(),
     focusMode: vi.fn(),
     liveView: vi.fn(),
     newDocument: vi.fn(),
@@ -17,6 +18,7 @@ function createHandlers(): AppShortcutHandlers {
     openFolder: vi.fn(),
     previewView: vi.fn(),
     quickOpen: vi.fn(),
+    replace: vi.fn(),
     save: vi.fn(),
     saveAs: vi.fn(),
     splitView: vi.fn(),
@@ -58,5 +60,26 @@ describe("useAppShortcuts", () => {
 
     fireEvent.keyDown(window, { key: "n", ctrlKey: true, shiftKey: true });
     expect(handlers.newWindow).toHaveBeenCalledOnce();
+  });
+
+  it("opens find and the platform-native replace shortcut", () => {
+    document.documentElement.dataset.platform = "macos";
+    const macHandlers = createHandlers();
+    const macHook = renderHook(() => useAppShortcuts(macHandlers));
+
+    fireEvent.keyDown(window, { key: "f", metaKey: true });
+    fireEvent.keyDown(window, { altKey: true, key: "f", metaKey: true });
+    expect(macHandlers.find).toHaveBeenCalledOnce();
+    expect(macHandlers.replace).toHaveBeenCalledOnce();
+    macHook.unmount();
+
+    document.documentElement.dataset.platform = "windows";
+    const windowsHandlers = createHandlers();
+    renderHook(() => useAppShortcuts(windowsHandlers));
+
+    fireEvent.keyDown(window, { ctrlKey: true, key: "f" });
+    fireEvent.keyDown(window, { ctrlKey: true, key: "h" });
+    expect(windowsHandlers.find).toHaveBeenCalledOnce();
+    expect(windowsHandlers.replace).toHaveBeenCalledOnce();
   });
 });

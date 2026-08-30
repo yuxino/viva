@@ -16,23 +16,35 @@ import {
   hasDirtyDocuments,
   initialWorkspaceState,
   isDocumentDirty,
+  isPathWithinEntry,
+  remapEntryPath,
   workspaceReducer,
   type Activity,
+  type DocumentSnapshot,
+  type WorkspaceAction,
+  type WorkspaceState,
   type ViewMode,
 } from "../domain/workspace";
 import {
   chooseSavePath,
   chooseWorkspace,
+  createDocument,
+  createWorkspaceDirectory,
   describeNativeError,
+  duplicateWorkspaceEntry,
   hasNativeShell,
   isFreshWindow,
   inspectSaveDestination,
   openWorkspace as loadWorkspace,
   readDocument,
+  renameWorkspaceEntry,
   saveDocumentAs as saveNativeDocumentAs,
   searchWorkspace,
+  trashWorkspaceEntry,
   writeDocument as writeNativeDocument,
+  type ExpectedDocumentRevision,
   type SearchMatch,
+  type WorkspaceEntryMutation,
 } from "../lib/native";
 import {
   clearLastWorkspace,
@@ -112,6 +124,86 @@ interface WorkspaceOperationContext {
   rootPath: string;
 }
 
+export interface WorkspaceEntryImpact {
+  affectedDocumentIds: string[];
+  affectedDirtyDocumentIds: string[];
+}
+
+export interface WorkspaceEntryOperationResult extends WorkspaceEntryImpact {
+  succeeded: boolean;
+  applied: boolean;
+  treeRefreshed: boolean;
+  mutation?: WorkspaceEntryMutation;
+  error?: string;
+  refreshError?: string;
+}
+
+export interface MarkdownCreationResult extends WorkspaceEntryImpact {
+  succeeded: boolean;
+  applied: boolean;
+  treeRefreshed: boolean;
+  snapshot?: DocumentSnapshot;
+  error?: string;
+  refreshError?: string;
+}
+
+function entryImpact(
+  state: WorkspaceState,
+  relativePath: string,
+): WorkspaceEntryImpact {
+  const affectedDocumentIds = state.documentOrder.filter((id) =>
+    isPathWithinEntry(id, relativePath),
+  );
+  return {
+    affectedDocumentIds,
+    affectedDirtyDocumentIds: affectedDocumentIds.filter((id) =>
+      isDocumentDirty(state.documents[id]),
+    ),
+  };
+}
+
+function expectedRevisions(
+  state: WorkspaceState,
+  impact: WorkspaceEntryImpact,
+): ExpectedDocumentRevision[] {
+  return impact.affectedDocumentIds.flatMap((relativePath) => {
+    const document = state.documents[relativePath];
+    return document ? [{ relativePath, revision: document.revision }] : [];
+  });
+}
+
+function joinRelativePath(parentRelativePath: string, name: string): string {
+  return parentRelativePath ? `${parentRelativePath}/${name}` : name;
+}
+
+function renamedRelativePath(relativePath: string, newName: string): string {
+  const separator = relativePath.lastIndexOf("/");
+  return joinRelativePath(
+    separator >= 0 ? relativePath.slice(0, separator) : "",
+    newName,
+  );
+}
+
+function hasOpenDocumentRenameCollision(
+  state: WorkspaceState,
+  sourcePath: string,
+  destinationPath: string,
+): boolean {
+  const affectedIds = new Set(
+    Object.keys(state.documents).filter((id) =>
+      isPathWithinEntry(id, sourcePath),
+    ),
+  );
+  return Array.from(affectedIds).some((id) => {
+    const destinationId = remapEntryPath(id, sourcePath, destinationPath);
+    return (
+      destinationId !== id &&
+      Boolean(state.documents[destinationId]) &&
+      !affectedIds.has(destinationId)
+    );
+  });
+}
+
 function statusAfterSave(
   snapshot: { historyWarningCode?: "HISTORY_UNAVAILABLE" },
   newerContent = false,
@@ -169,6 +261,7 @@ export function useWorkspaceController() {
   );
   const savesInFlightRef = useRef(new Map<string, Promise<boolean>>());
   const fileMutationInFlightRef = useRef<Promise<boolean> | null>(null);
+  const fileOperationTailRef = useRef<Promise<void>>(Promise.resolve());
   const searchRequestIdRef = useRef(0);
   const workspaceGenerationRef = useRef(0);
   const workspaceRootRef = useRef<string | null>(null);
@@ -178,6 +271,23 @@ export function useWorkspaceController() {
   const currentDocument = useMemo(() => activeDocument(state), [state]);
   const dirty = useMemo(() => hasDirtyDocuments(state), [state]);
   liveStateRef.current = state;
+
+  const dispatchState = useCallback((action: WorkspaceAction) => {
+    liveStateRef.current = workspaceReducer(liveStateRef.current, action);
+    dispatch(action);
+  }, []);
+
+  const enqueueFileOperation = useCallback(
+    <T,>(operation: () => Promise<T>): Promise<T> => {
+      const queued = fileOperationTailRef.current.then(operation, operation);
+      fileOperationTailRef.current = queued.then(
+        () => undefined,
+        () => undefined,
+      );
+      return queued;
+    },
+    [],
+  );
 
   const isWorkspaceContextCurrent = useCallback(
     (context: WorkspaceOperationContext) =>
@@ -192,6 +302,30 @@ export function useWorkspaceController() {
     return token;
   }, []);
 
+  const remapDocumentTokens = useCallback(
+    (sourcePath: string, destinationPath: string) => {
+      const remapped = new Map(documentTokensRef.current);
+      const affected = Array.from(documentTokensRef.current.entries()).filter(
+        ([id]) => isPathWithinEntry(id, sourcePath),
+      );
+      for (const [id] of affected) remapped.delete(id);
+      for (const [id, token] of affected) {
+        remapped.set(
+          remapEntryPath(id, sourcePath, destinationPath),
+          token,
+        );
+      }
+      documentTokensRef.current = remapped;
+    },
+    [],
+  );
+
+  const removeDocumentTokens = useCallback((path: string) => {
+    for (const id of documentTokensRef.current.keys()) {
+      if (isPathWithinEntry(id, path)) documentTokensRef.current.delete(id);
+    }
+  }, []);
+
   const isDocumentContextCurrent = useCallback(
     (context: WorkspaceOperationContext, id: string, token: number) =>
       isWorkspaceContextCurrent(context) &&
@@ -203,15 +337,61 @@ export function useWorkspaceController() {
   const refreshWorkspace = useCallback(
     async (context: WorkspaceOperationContext): Promise<boolean> => {
       const workspace = await loadWorkspace(context.rootPath);
-      if (!isWorkspaceContextCurrent(context)) return false;
-      dispatch({
+      if (
+        !isWorkspaceContextCurrent(context) ||
+        workspace.rootPath !== context.rootPath
+      ) {
+        return false;
+      }
+      dispatchState({
         type: "workspace/refreshed",
         expectedRootPath: context.rootPath,
         workspace,
       });
       return true;
     },
-    [isWorkspaceContextCurrent],
+    [dispatchState, isWorkspaceContextCurrent],
+  );
+
+  const refreshCurrentWorkspace = useCallback(async (): Promise<boolean> => {
+    const workspace = liveStateRef.current.workspace;
+    const rootPath = workspaceRootRef.current;
+    if (!workspace || !rootPath || workspace.rootPath !== rootPath) return false;
+
+    const context = {
+      generation: workspaceGenerationRef.current,
+      rootPath,
+    };
+    try {
+      return await refreshWorkspace(context);
+    } catch (error) {
+      if (isWorkspaceContextCurrent(context)) {
+        setStatus(nativeErrorStatus(error));
+      }
+      return false;
+    }
+  }, [isWorkspaceContextCurrent, refreshWorkspace]);
+
+  const refreshAfterMutation = useCallback(
+    async (
+      context: WorkspaceOperationContext,
+    ): Promise<{ treeRefreshed: boolean; refreshError?: string }> => {
+      try {
+        return { treeRefreshed: await refreshWorkspace(context) };
+      } catch (error) {
+        return {
+          treeRefreshed: false,
+          refreshError: describeNativeError(error, t),
+        };
+      }
+    },
+    [refreshWorkspace, t],
+  );
+
+  const inspectEntryImpact = useCallback(
+    (relativePath: string): WorkspaceEntryImpact =>
+      entryImpact(liveStateRef.current, relativePath),
+    [],
   );
 
   const openWorkspacePath = useCallback(
@@ -228,12 +408,15 @@ export function useWorkspaceController() {
         const context = { generation, rootPath: workspace.rootPath };
         workspaceRootRef.current = workspace.rootPath;
         documentTokensRef.current.clear();
-        dispatch({ type: "workspace/opened", workspace });
+        dispatchState({ type: "workspace/opened", workspace });
 
         if (restoreSession) {
-          dispatch({ type: "view/selected", viewMode: restoreSession.viewMode });
+          dispatchState({
+            type: "view/selected",
+            viewMode: restoreSession.viewMode,
+          });
           if (!restoreSession.sidebarVisible) {
-            dispatch({ type: "sidebar/toggled" });
+            dispatchState({ type: "sidebar/toggled" });
           }
         }
 
@@ -243,7 +426,7 @@ export function useWorkspaceController() {
               const snapshot = await readDocument(workspace.rootPath, relativePath);
               if (!isWorkspaceContextCurrent(context)) return false;
               markDocumentCurrent(snapshot.relativePath);
-              dispatch({ type: "document/opened", snapshot });
+              dispatchState({ type: "document/opened", snapshot });
             } catch {
               if (!isWorkspaceContextCurrent(context)) return false;
               // A restored file may have moved while Viva was closed.
@@ -251,7 +434,7 @@ export function useWorkspaceController() {
           }
           if (restoreSession.activeDocumentPath) {
             if (!isWorkspaceContextCurrent(context)) return false;
-            dispatch({
+            dispatchState({
               type: "document/activated",
               id: restoreSession.activeDocumentPath,
             });
@@ -281,7 +464,7 @@ export function useWorkspaceController() {
         if (workspaceGenerationRef.current === generation) setBusy(false);
       }
     },
-    [isWorkspaceContextCurrent, markDocumentCurrent],
+    [dispatchState, isWorkspaceContextCurrent, markDocumentCurrent],
   );
 
   useEffect(() => {
@@ -381,7 +564,7 @@ export function useWorkspaceController() {
         if (!documentTokensRef.current.has(relativePath)) {
           markDocumentCurrent(relativePath);
         }
-        dispatch({ type: "document/activated", id: relativePath });
+        dispatchState({ type: "document/activated", id: relativePath });
         return true;
       }
       const context = {
@@ -393,7 +576,7 @@ export function useWorkspaceController() {
         const snapshot = await readDocument(workspace.rootPath, relativePath);
         if (!isWorkspaceContextCurrent(context)) return false;
         markDocumentCurrent(snapshot.relativePath);
-        dispatch({ type: "document/opened", snapshot });
+        dispatchState({ type: "document/opened", snapshot });
         setStatus(READY_STATUS);
         return true;
       } catch (error) {
@@ -403,6 +586,7 @@ export function useWorkspaceController() {
       }
     },
     [
+      dispatchState,
       isWorkspaceContextCurrent,
       markDocumentCurrent,
       state.documents,
@@ -411,9 +595,9 @@ export function useWorkspaceController() {
   );
 
   const changeDocument = useCallback((id: string, content: string) => {
-    dispatch({ type: "document/changed", id, content });
+    dispatchState({ type: "document/changed", id, content });
     setStatus(translatedStatus("Not saved", "neutral"));
-  }, []);
+  }, [dispatchState]);
 
   const saveDocument = useCallback(
     (id = state.activeDocumentId ?? ""): Promise<boolean> => {
@@ -431,15 +615,18 @@ export function useWorkspaceController() {
       const inFlight = savesInFlightRef.current.get(operationKey);
       if (inFlight) return inFlight;
       setStatus(translatedStatus("Saving…", "neutral"));
-      const operation = (async () => {
+      const operation = enqueueFileOperation(async () => {
         try {
+          if (!isDocumentContextCurrent(context, id, documentToken)) {
+            return false;
+          }
           const snapshot = await writeNativeDocument(workspace.rootPath, document);
           if (!isDocumentContextCurrent(context, id, documentToken)) {
             return false;
           }
           const newerContent =
             liveStateRef.current.documents[id]?.content !== snapshot.content;
-          dispatch({ type: "document/saved", previousId: id, snapshot });
+          dispatchState({ type: "document/saved", previousId: id, snapshot });
           setStatus(statusAfterSave(snapshot, newerContent));
           return !newerContent;
         } catch (error) {
@@ -451,11 +638,13 @@ export function useWorkspaceController() {
         } finally {
           savesInFlightRef.current.delete(operationKey);
         }
-      })();
+      });
       savesInFlightRef.current.set(operationKey, operation);
       return operation;
     },
     [
+      dispatchState,
+      enqueueFileOperation,
       isDocumentContextCurrent,
       markDocumentCurrent,
       state.activeDocumentId,
@@ -489,63 +678,68 @@ export function useWorkspaceController() {
         );
         if (!destination) return false;
         if (!isDocumentContextCurrent(context, id, documentToken)) return false;
-        try {
-          const destinationState = await inspectSaveDestination(
-            workspace.rootPath,
-            destination,
-          );
-          if (!isDocumentContextCurrent(context, id, documentToken)) {
-            return false;
-          }
-          if (
-            destinationState.relativePath !== id &&
-            liveStateRef.current.documents[destinationState.relativePath]
-          ) {
-            setStatus(
-              translatedStatus(
-                "Close the destination tab before replacing that document.",
-                "error",
-              ),
+        return enqueueFileOperation(async () => {
+          try {
+            if (!isDocumentContextCurrent(context, id, documentToken)) {
+              return false;
+            }
+            const destinationState = await inspectSaveDestination(
+              workspace.rootPath,
+              destination,
             );
-            return false;
-          }
-          const snapshot = await saveNativeDocumentAs(
-            workspace.rootPath,
-            destination,
-            document.content,
-            destinationState.revision,
-          );
-          if (!isDocumentContextCurrent(context, id, documentToken)) {
-            return false;
-          }
-          if (
-            snapshot.relativePath !== id &&
-            liveStateRef.current.documents[snapshot.relativePath]
-          ) {
-            await refreshWorkspace(context);
+            if (!isDocumentContextCurrent(context, id, documentToken)) {
+              return false;
+            }
+            if (
+              destinationState.relativePath !== id &&
+              liveStateRef.current.documents[destinationState.relativePath]
+            ) {
+              setStatus(
+                translatedStatus(
+                  "Close the destination tab before replacing that document.",
+                  "error",
+                ),
+              );
+              return false;
+            }
+            const snapshot = await saveNativeDocumentAs(
+              workspace.rootPath,
+              destination,
+              document.content,
+              destinationState.revision,
+            );
+            if (!isDocumentContextCurrent(context, id, documentToken)) {
+              return false;
+            }
+            if (
+              snapshot.relativePath !== id &&
+              liveStateRef.current.documents[snapshot.relativePath]
+            ) {
+              await refreshAfterMutation(context);
+              if (!isWorkspaceContextCurrent(context)) return false;
+              setStatus(
+                translatedStatus(
+                  "Copy saved. The destination opened meanwhile, so both drafts were kept.",
+                  "neutral",
+                ),
+              );
+              return true;
+            }
+            markDocumentCurrent(id);
+            markDocumentCurrent(snapshot.relativePath);
+            dispatchState({ type: "document/saved", previousId: id, snapshot });
+            await refreshAfterMutation(context);
             if (!isWorkspaceContextCurrent(context)) return false;
-            setStatus(
-              translatedStatus(
-                "Copy saved. The destination opened meanwhile, so both drafts were kept.",
-                "neutral",
-              ),
-            );
+            setStatus(statusAfterSave(snapshot));
             return true;
-          }
-          markDocumentCurrent(id);
-          markDocumentCurrent(snapshot.relativePath);
-          dispatch({ type: "document/saved", previousId: id, snapshot });
-          await refreshWorkspace(context);
-          if (!isWorkspaceContextCurrent(context)) return false;
-          setStatus(statusAfterSave(snapshot));
-          return true;
-        } catch (error) {
-          if (!isDocumentContextCurrent(context, id, documentToken)) {
+          } catch (error) {
+            if (!isDocumentContextCurrent(context, id, documentToken)) {
+              return false;
+            }
+            setStatus(nativeErrorStatus(error, "Not saved — %@"));
             return false;
           }
-          setStatus(nativeErrorStatus(error, "Not saved — %@"));
-          return false;
-        }
+        });
       })();
       fileMutationInFlightRef.current = operation;
       void operation.finally(() => {
@@ -556,10 +750,12 @@ export function useWorkspaceController() {
       return operation;
     },
     [
+      dispatchState,
+      enqueueFileOperation,
       isDocumentContextCurrent,
       isWorkspaceContextCurrent,
       markDocumentCurrent,
-      refreshWorkspace,
+      refreshAfterMutation,
       state.activeDocumentId,
       state.documents,
       state.workspace,
@@ -591,24 +787,27 @@ export function useWorkspaceController() {
         t("Markdown"),
       );
       if (!destination || !isWorkspaceContextCurrent(context)) return false;
-      try {
-        const snapshot = await saveNativeDocumentAs(
-          workspace.rootPath,
-          destination,
-          `# ${untitled}\n\n`,
-        );
-        if (!isWorkspaceContextCurrent(context)) return false;
-        markDocumentCurrent(snapshot.relativePath);
-        dispatch({ type: "document/opened", snapshot });
-        await refreshWorkspace(context);
-        if (!isWorkspaceContextCurrent(context)) return false;
-        setStatus(statusAfterSave(snapshot));
-        return true;
-      } catch (error) {
-        if (!isWorkspaceContextCurrent(context)) return false;
-        setStatus(nativeErrorStatus(error));
-        return false;
-      }
+      return enqueueFileOperation(async () => {
+        try {
+          if (!isWorkspaceContextCurrent(context)) return false;
+          const snapshot = await saveNativeDocumentAs(
+            workspace.rootPath,
+            destination,
+            `# ${untitled}\n\n`,
+          );
+          if (!isWorkspaceContextCurrent(context)) return false;
+          markDocumentCurrent(snapshot.relativePath);
+          dispatchState({ type: "document/opened", snapshot });
+          await refreshAfterMutation(context);
+          if (!isWorkspaceContextCurrent(context)) return false;
+          setStatus(statusAfterSave(snapshot));
+          return true;
+        } catch (error) {
+          if (!isWorkspaceContextCurrent(context)) return false;
+          setStatus(nativeErrorStatus(error));
+          return false;
+        }
+      });
     })();
     fileMutationInFlightRef.current = operation;
     void operation.finally(() => {
@@ -618,12 +817,491 @@ export function useWorkspaceController() {
     });
     return operation;
   }, [
+    dispatchState,
+    enqueueFileOperation,
     isWorkspaceContextCurrent,
     markDocumentCurrent,
-    refreshWorkspace,
+    refreshAfterMutation,
     state.workspace,
     t,
   ]);
+
+  const createMarkdown = useCallback(
+    (
+      parentRelativePath: string,
+      name: string,
+      content = "",
+    ): Promise<MarkdownCreationResult> => {
+      const emptyImpact: WorkspaceEntryImpact = {
+        affectedDocumentIds: [],
+        affectedDirtyDocumentIds: [],
+      };
+      const workspace = liveStateRef.current.workspace;
+      if (!workspace) {
+        const error = t("Open a folder before creating a note");
+        setStatus(
+          translatedStatus("Open a folder before creating a note", "error"),
+        );
+        return Promise.resolve({
+          ...emptyImpact,
+          succeeded: false,
+          applied: false,
+          treeRefreshed: false,
+          error,
+        });
+      }
+      const context = {
+        generation: workspaceGenerationRef.current,
+        rootPath: workspace.rootPath,
+      };
+      const relativePath = joinRelativePath(parentRelativePath, name);
+      return enqueueFileOperation(async () => {
+        if (!isWorkspaceContextCurrent(context)) {
+          return {
+            ...emptyImpact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error: "The workspace changed before this operation could finish.",
+          };
+        }
+        try {
+          const snapshot = await createDocument(
+            context.rootPath,
+            relativePath,
+            content,
+          );
+          if (!isWorkspaceContextCurrent(context)) {
+            return {
+              ...emptyImpact,
+              succeeded: true,
+              applied: false,
+              treeRefreshed: false,
+              snapshot,
+            };
+          }
+          markDocumentCurrent(snapshot.relativePath);
+          dispatchState({ type: "document/opened", snapshot });
+          const refresh = await refreshAfterMutation(context);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(statusAfterSave(snapshot));
+          }
+          return {
+            ...emptyImpact,
+            succeeded: true,
+            applied: true,
+            snapshot,
+            ...refresh,
+          };
+        } catch (nativeError) {
+          const error = describeNativeError(nativeError, t);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(nativeErrorStatus(nativeError));
+          }
+          return {
+            ...emptyImpact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error,
+          };
+        }
+      });
+    },
+    [
+      dispatchState,
+      enqueueFileOperation,
+      isWorkspaceContextCurrent,
+      markDocumentCurrent,
+      refreshAfterMutation,
+      t,
+    ],
+  );
+
+  const createDirectory = useCallback(
+    (
+      parentRelativePath: string,
+      name: string,
+    ): Promise<WorkspaceEntryOperationResult> => {
+      const emptyImpact: WorkspaceEntryImpact = {
+        affectedDocumentIds: [],
+        affectedDirtyDocumentIds: [],
+      };
+      const workspace = liveStateRef.current.workspace;
+      if (!workspace) {
+        const error = t("Choose a folder.");
+        setStatus(translatedStatus("Choose a folder.", "error"));
+        return Promise.resolve({
+          ...emptyImpact,
+          succeeded: false,
+          applied: false,
+          treeRefreshed: false,
+          error,
+        });
+      }
+      const context = {
+        generation: workspaceGenerationRef.current,
+        rootPath: workspace.rootPath,
+      };
+      return enqueueFileOperation(async () => {
+        if (!isWorkspaceContextCurrent(context)) {
+          return {
+            ...emptyImpact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error: "The workspace changed before this operation could finish.",
+          };
+        }
+        try {
+          const mutation = await createWorkspaceDirectory(
+            context.rootPath,
+            parentRelativePath,
+            name,
+          );
+          if (!isWorkspaceContextCurrent(context)) {
+            return {
+              ...emptyImpact,
+              succeeded: true,
+              applied: false,
+              treeRefreshed: false,
+              mutation,
+            };
+          }
+          const refresh = await refreshAfterMutation(context);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(statusAfterSave(mutation));
+          }
+          return {
+            ...emptyImpact,
+            succeeded: true,
+            applied: true,
+            mutation,
+            ...refresh,
+          };
+        } catch (nativeError) {
+          const error = describeNativeError(nativeError, t);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(nativeErrorStatus(nativeError));
+          }
+          return {
+            ...emptyImpact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error,
+          };
+        }
+      });
+    },
+    [enqueueFileOperation, isWorkspaceContextCurrent, refreshAfterMutation, t],
+  );
+
+  const renameEntry = useCallback(
+    (
+      relativePath: string,
+      newName: string,
+    ): Promise<WorkspaceEntryOperationResult> => {
+      const initialImpact = entryImpact(liveStateRef.current, relativePath);
+      const workspace = liveStateRef.current.workspace;
+      if (!workspace) {
+        const error = t("Choose a folder.");
+        setStatus(translatedStatus("Choose a folder.", "error"));
+        return Promise.resolve({
+          ...initialImpact,
+          succeeded: false,
+          applied: false,
+          treeRefreshed: false,
+          error,
+        });
+      }
+      const context = {
+        generation: workspaceGenerationRef.current,
+        rootPath: workspace.rootPath,
+      };
+      return enqueueFileOperation(async () => {
+        if (!isWorkspaceContextCurrent(context)) {
+          return {
+            ...initialImpact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error: "The workspace changed before this operation could finish.",
+          };
+        }
+        const operationState = liveStateRef.current;
+        const impact = entryImpact(operationState, relativePath);
+        const predictedDestination = renamedRelativePath(relativePath, newName);
+        if (
+          hasOpenDocumentRenameCollision(
+            operationState,
+            relativePath,
+            predictedDestination,
+          )
+        ) {
+          const error = t(
+            "Close the destination tab before replacing that document.",
+          );
+          setStatus(
+            translatedStatus(
+              "Close the destination tab before replacing that document.",
+              "error",
+            ),
+          );
+          return {
+            ...impact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error,
+          };
+        }
+        try {
+          const mutation = await renameWorkspaceEntry(
+            context.rootPath,
+            relativePath,
+            newName,
+            expectedRevisions(operationState, impact),
+          );
+          if (!isWorkspaceContextCurrent(context)) {
+            return {
+              ...impact,
+              succeeded: true,
+              applied: false,
+              treeRefreshed: false,
+              mutation,
+            };
+          }
+          const sourcePath = mutation.sourceRelativePath ?? relativePath;
+          const destinationPath =
+            mutation.destinationRelativePath ?? predictedDestination;
+          const before = liveStateRef.current;
+          const action: WorkspaceAction = {
+            type: "entry/renamed",
+            sourcePath,
+            destinationPath,
+          };
+          const after = workspaceReducer(before, action);
+          if (
+            after === before &&
+            hasOpenDocumentRenameCollision(before, sourcePath, destinationPath)
+          ) {
+            const error = t(
+              "Close the destination tab before replacing that document.",
+            );
+            setStatus(
+              translatedStatus(
+                "Close the destination tab before replacing that document.",
+                "error",
+              ),
+            );
+            const refresh = await refreshAfterMutation(context);
+            return {
+              ...impact,
+              succeeded: true,
+              applied: false,
+              mutation,
+              error,
+              ...refresh,
+            };
+          }
+          remapDocumentTokens(sourcePath, destinationPath);
+          dispatchState(action);
+          const refresh = await refreshAfterMutation(context);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(statusAfterSave(mutation));
+          }
+          return {
+            ...impact,
+            succeeded: true,
+            applied: true,
+            mutation,
+            ...refresh,
+          };
+        } catch (nativeError) {
+          const error = describeNativeError(nativeError, t);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(nativeErrorStatus(nativeError));
+          }
+          return {
+            ...impact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error,
+          };
+        }
+      });
+    },
+    [
+      dispatchState,
+      enqueueFileOperation,
+      isWorkspaceContextCurrent,
+      refreshAfterMutation,
+      remapDocumentTokens,
+      t,
+    ],
+  );
+
+  const duplicateEntry = useCallback(
+    (relativePath: string): Promise<WorkspaceEntryOperationResult> => {
+      const initialImpact = entryImpact(liveStateRef.current, relativePath);
+      const workspace = liveStateRef.current.workspace;
+      if (!workspace) {
+        const error = t("Choose a folder.");
+        setStatus(translatedStatus("Choose a folder.", "error"));
+        return Promise.resolve({
+          ...initialImpact,
+          succeeded: false,
+          applied: false,
+          treeRefreshed: false,
+          error,
+        });
+      }
+      const context = {
+        generation: workspaceGenerationRef.current,
+        rootPath: workspace.rootPath,
+      };
+      return enqueueFileOperation(async () => {
+        if (!isWorkspaceContextCurrent(context)) {
+          return {
+            ...initialImpact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error: "The workspace changed before this operation could finish.",
+          };
+        }
+        const operationState = liveStateRef.current;
+        const impact = entryImpact(operationState, relativePath);
+        try {
+          const mutation = await duplicateWorkspaceEntry(
+            context.rootPath,
+            relativePath,
+            operationState.documents[relativePath]?.revision,
+          );
+          if (!isWorkspaceContextCurrent(context)) {
+            return {
+              ...impact,
+              succeeded: true,
+              applied: false,
+              treeRefreshed: false,
+              mutation,
+            };
+          }
+          const refresh = await refreshAfterMutation(context);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(statusAfterSave(mutation));
+          }
+          return {
+            ...impact,
+            succeeded: true,
+            applied: true,
+            mutation,
+            ...refresh,
+          };
+        } catch (nativeError) {
+          const error = describeNativeError(nativeError, t);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(nativeErrorStatus(nativeError));
+          }
+          return {
+            ...impact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error,
+          };
+        }
+      });
+    },
+    [enqueueFileOperation, isWorkspaceContextCurrent, refreshAfterMutation, t],
+  );
+
+  const trashEntry = useCallback(
+    (relativePath: string): Promise<WorkspaceEntryOperationResult> => {
+      const initialImpact = entryImpact(liveStateRef.current, relativePath);
+      const workspace = liveStateRef.current.workspace;
+      if (!workspace) {
+        const error = t("Choose a folder.");
+        setStatus(translatedStatus("Choose a folder.", "error"));
+        return Promise.resolve({
+          ...initialImpact,
+          succeeded: false,
+          applied: false,
+          treeRefreshed: false,
+          error,
+        });
+      }
+      const context = {
+        generation: workspaceGenerationRef.current,
+        rootPath: workspace.rootPath,
+      };
+      return enqueueFileOperation(async () => {
+        if (!isWorkspaceContextCurrent(context)) {
+          return {
+            ...initialImpact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error: "The workspace changed before this operation could finish.",
+          };
+        }
+        const operationState = liveStateRef.current;
+        const impact = entryImpact(operationState, relativePath);
+        try {
+          const mutation = await trashWorkspaceEntry(
+            context.rootPath,
+            relativePath,
+            expectedRevisions(operationState, impact),
+          );
+          if (!isWorkspaceContextCurrent(context)) {
+            return {
+              ...impact,
+              succeeded: true,
+              applied: false,
+              treeRefreshed: false,
+              mutation,
+            };
+          }
+          const sourcePath = mutation.sourceRelativePath ?? relativePath;
+          removeDocumentTokens(sourcePath);
+          dispatchState({ type: "entry/trashed", path: sourcePath });
+          const refresh = await refreshAfterMutation(context);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(statusAfterSave(mutation));
+          }
+          return {
+            ...impact,
+            succeeded: true,
+            applied: true,
+            mutation,
+            ...refresh,
+          };
+        } catch (nativeError) {
+          const error = describeNativeError(nativeError, t);
+          if (isWorkspaceContextCurrent(context)) {
+            setStatus(nativeErrorStatus(nativeError));
+          }
+          return {
+            ...impact,
+            succeeded: false,
+            applied: false,
+            treeRefreshed: false,
+            error,
+          };
+        }
+      });
+    },
+    [
+      dispatchState,
+      enqueueFileOperation,
+      isWorkspaceContextCurrent,
+      refreshAfterMutation,
+      removeDocumentTokens,
+      t,
+    ],
+  );
 
   const runSearch = useCallback(
     async (query: string): Promise<void> => {
@@ -676,8 +1354,8 @@ export function useWorkspaceController() {
 
   const closeDocument = useCallback(
     (id: string) => {
-      markDocumentCurrent(id);
-      dispatch({ type: "document/closed", id });
+      documentTokensRef.current.delete(id);
+      dispatchState({ type: "document/closed", id });
       const hasOtherDirtyDocument = Object.entries(
         liveStateRef.current.documents,
       ).some(
@@ -686,32 +1364,32 @@ export function useWorkspaceController() {
       );
       if (!hasOtherDirtyDocument) setStatus(READY_STATUS);
     },
-    [markDocumentCurrent],
+    [dispatchState],
   );
 
   const activateDocument = useCallback((id: string) => {
-    dispatch({ type: "document/activated", id });
-  }, []);
+    dispatchState({ type: "document/activated", id });
+  }, [dispatchState]);
 
   const toggleTreePath = useCallback((path: string) => {
-    dispatch({ type: "tree/toggled", path });
-  }, []);
+    dispatchState({ type: "tree/toggled", path });
+  }, [dispatchState]);
 
   const selectActivity = useCallback((activity: Activity) => {
-    dispatch({ type: "activity/selected", activity });
-  }, []);
+    dispatchState({ type: "activity/selected", activity });
+  }, [dispatchState]);
 
   const toggleSidebar = useCallback(() => {
-    dispatch({ type: "sidebar/toggled" });
-  }, []);
+    dispatchState({ type: "sidebar/toggled" });
+  }, [dispatchState]);
 
   const toggleFocus = useCallback(() => {
-    dispatch({ type: "focus/toggled" });
-  }, []);
+    dispatchState({ type: "focus/toggled" });
+  }, [dispatchState]);
 
   const selectView = useCallback((viewMode: ViewMode) => {
-    dispatch({ type: "view/selected", viewMode });
-  }, []);
+    dispatchState({ type: "view/selected", viewMode });
+  }, [dispatchState]);
 
   const reportError = useCallback((error: unknown) => {
     setStatus(nativeErrorStatus(error));
@@ -726,6 +1404,7 @@ export function useWorkspaceController() {
     searchResults,
     searching,
     recentWorkspaces,
+    refreshCurrentWorkspace,
     openFolder,
     openRecentWorkspace,
     openDocument,
@@ -733,6 +1412,12 @@ export function useWorkspaceController() {
     saveDocument,
     saveDocumentAs,
     newDocument,
+    inspectEntryImpact,
+    createMarkdown,
+    createDirectory,
+    renameEntry,
+    duplicateEntry,
+    trashEntry,
     runSearch,
     closeDocument,
     activateDocument,

@@ -36,6 +36,50 @@ pub struct CreateDocumentRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateWorkspaceDirectoryRequest {
+    pub workspace_root: String,
+    #[serde(default)]
+    pub parent_relative_path: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExpectedDocumentRevision {
+    pub relative_path: String,
+    pub revision: FileRevision,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RenameWorkspaceEntryRequest {
+    pub workspace_root: String,
+    pub relative_path: String,
+    pub new_name: String,
+    #[serde(default)]
+    pub expected_documents: Vec<ExpectedDocumentRevision>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DuplicateWorkspaceEntryRequest {
+    pub workspace_root: String,
+    pub relative_path: String,
+    #[serde(default)]
+    pub expected_revision: Option<FileRevision>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrashWorkspaceEntryRequest {
+    pub workspace_root: String,
+    pub relative_path: String,
+    #[serde(default)]
+    pub expected_documents: Vec<ExpectedDocumentRevision>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveDocumentAsRequest {
     pub workspace_root: String,
     pub destination_path: String,
@@ -106,6 +150,19 @@ pub enum WorkspaceEntryKind {
     Directory,
     File,
     Image,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceEntryMutation {
+    pub kind: WorkspaceEntryKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_relative_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_relative_path: Option<String>,
+    pub recoverable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_warning_code: Option<HistoryWarningCode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

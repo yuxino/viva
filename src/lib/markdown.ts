@@ -63,6 +63,10 @@ const sourceMappedTokens = new Set([
   "bullet_list_open",
   "ordered_list_open",
   "list_item_open",
+  "fence",
+  "code_block",
+  "table_open",
+  "hr",
 ]);
 
 markdown.core.ruler.after("inline", "viva_task_lists", (state) => {
@@ -107,9 +111,21 @@ function slugify(value: string): string {
 }
 
 function assignSourceLines(tokens: Token[]): void {
+  const ancestorSourceLines: number[] = [];
+
   for (const token of tokens) {
-    if (token.map && sourceMappedTokens.has(token.type)) {
-      token.attrSet("data-source-line", String(token.map[0] + 1));
+    ancestorSourceLines.length = Math.min(
+      ancestorSourceLines.length,
+      token.level,
+    );
+    if (!token.map || !sourceMappedTokens.has(token.type)) continue;
+
+    const sourceLine = token.map[0] + 1;
+    if (!ancestorSourceLines.includes(sourceLine)) {
+      token.attrSet("data-source-line", String(sourceLine));
+    }
+    if (token.nesting > 0) {
+      ancestorSourceLines[token.level] = sourceLine;
     }
   }
 }
@@ -206,17 +222,9 @@ markdown.renderer.rules.image = (tokens, index, _options, environment) => {
   const remote = source.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(source);
   renderEnvironment.images.push({ alt, id, remote, source, title });
 
-  const escapedId = markdown.utils.escapeHtml(id);
-  const escapedSource = markdown.utils.escapeHtml(source);
-  const escapedAlt = markdown.utils.escapeHtml(alt);
-  const escapedTitle = title ? markdown.utils.escapeHtml(title) : "";
   const label = alt || source;
   return [
     `<span class="markdown-image-placeholder${remote ? " is-remote" : ""}"`,
-    ` data-viva-image="${escapedId}"`,
-    ` data-image-src="${escapedSource}"`,
-    ` data-image-alt="${escapedAlt}"`,
-    title ? ` data-image-title="${escapedTitle}"` : "",
     ` role="img" aria-label="${markdown.utils.escapeHtml(label)}">`,
     `<span class="markdown-image-placeholder__label">${markdown.utils.escapeHtml(label)}</span>`,
     "</span>",
@@ -233,12 +241,16 @@ markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => 
 markdown.renderer.rules.fence = (tokens, index) => {
   const token = tokens[index];
   const highlighted = highlightCode(token?.content ?? "", token?.info ?? "");
+  const sourceLine = token?.attrGet("data-source-line");
+  const sourceLineAttribute = sourceLine
+    ? ` data-source-line="${markdown.utils.escapeHtml(String(sourceLine))}"`
+    : "";
   const label = highlighted.label
     ? `<figcaption class="markdown-code-block__language">${markdown.utils.escapeHtml(highlighted.label)}</figcaption>`
     : "";
 
   return [
-    `<figure class="markdown-code-block"${highlighted.language ? ` data-language="${highlighted.language}"` : ""}>`,
+    `<figure class="markdown-code-block"${sourceLineAttribute}${highlighted.language ? ` data-language="${highlighted.language}"` : ""}>`,
     label,
     `<pre><code class="${highlighted.className}">${highlighted.html}</code></pre>`,
     "</figure>",
@@ -295,14 +307,32 @@ export function renderMarkdownDocument(
 }
 
 export function countWords(source: string): number {
-  const withoutMarkup = source
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/`[^`]*`/g, " ")
+  const visibleProse = source
+    .replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, " ")
+    .replace(/`[^`\n]*`/g, " ")
+    .replace(/^\s{0,3}\[[^\]\n]+\]:[^\n]*$/gm, " ")
+    .replace(/!\[([^\]]*)\]\([^\n)]*\)/g, " $1 ")
+    .replace(/\[([^\]]+)\]\([^\n)]*\)/g, " $1 ")
+    .replace(/<https?:\/\/[^>]+>/gi, " ")
+    .replace(/\bhttps?:\/\/[^\s<>)\]]+/gi, " ")
+    .replace(/<[^>]+>/g, " ")
     .replace(/[>#*_~\-\[\]()!]/g, " ")
     .trim();
-  if (!withoutMarkup) return 0;
-  const latinWords = withoutMarkup.match(/[\p{Letter}\p{Number}]+/gu) ?? [];
-  return latinWords.length;
+  if (!visibleProse) return 0;
+
+  const cjkCharacters =
+    visibleProse.match(
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u30fc]/gu,
+    ) ?? [];
+  const withoutCjk = visibleProse.replace(
+    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u30fc]/gu,
+    " ",
+  );
+  const words =
+    withoutCjk.match(
+      /[\p{Letter}\p{Mark}\p{Number}]+(?:['’][\p{Letter}\p{Mark}\p{Number}]+)*/gu,
+    ) ?? [];
+  return cjkCharacters.length + words.length;
 }
 
 export function readingMinutes(source: string): number {

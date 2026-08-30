@@ -27,7 +27,7 @@ export function Welcome({
           alt=""
           decoding="async"
           height="360"
-          src="/art/viva-character-logo.jpg"
+          src="/art/viva-character-logo-round.webp"
           width="360"
         />
       </div>

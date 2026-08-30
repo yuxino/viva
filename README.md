@@ -27,9 +27,9 @@ you need a different view.
 
 ## What makes Viva useful
 
-- Open any folder and work across real tabs with a fast, keyboard-friendly tree.
+- Open any folder and work across real tabs with a fast, keyboard-friendly tree and safe file actions.
 - Search the whole workspace, follow the document outline, and recover earlier saves.
-- Preview Markdown and MDX safely, including validated local images.
+- Find and replace in the current document, and paste images into local `assets/` with relative paths.
 - Read Dart, TypeScript, and other fenced code with built-in syntax highlighting.
 - Keep unsaved work visible and protected across tabs, windows, and native quit flows.
 - Choose a calm light or graphite-dark workspace, with an optional local background.

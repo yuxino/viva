@@ -12,18 +12,19 @@ import { useI18n } from "../../i18n";
 import { writeClipboardText } from "../../lib/clipboard";
 import {
   renderMarkdownDocument,
-  type MarkdownImageReference,
   type RenderedMarkdownBlock,
 } from "../../lib/markdown";
 import {
   resolveLocalImagePath,
   workspaceImageCache,
+  type RenderedWorkspaceImageReference,
   type WorkspaceImageCacheLike,
   type WorkspaceImageLease,
 } from "../../lib/media";
-import { getVivaPlatform } from "../../lib/keyboard";
+import { getVivaPlatform, isImeKeyEvent } from "../../lib/keyboard";
 import {
   EditorPane,
+  normalizeSelection,
   type EditorPosition,
   type TextSelection,
 } from "../editor";
@@ -34,41 +35,83 @@ interface ActiveBlock {
   before: string;
   block: RenderedMarkdownBlock;
   blocks: RenderedMarkdownBlock[];
+  documentId: string;
   draft: string;
+  focusEditor: boolean;
   index: number;
+  revealRequestId: number | null;
   selection: Required<TextSelection>;
 }
+
+const EMPTY_RENDERED_MARKUP = { __html: "" } as const;
 
 export interface LiveEditorPaneProps {
   ariaLabel?: string;
   documentId: string;
   format?: "markdown" | "mdx";
   imageCache?: WorkspaceImageCacheLike;
+  imageCacheRevision?: number;
   onChange: (value: string) => void;
   onImageRequest?: (source: string, alt: string) => void;
   onLinkRequest?: (href: string) => void;
+  onPasteImage?: (
+    file: File,
+    selection: Required<TextSelection>,
+  ) => void;
   onPositionChange?: (position: EditorPosition) => void;
+  onSelectionChange?: (selection: Required<TextSelection>) => void;
+  revealSelection?: TextSelection | null;
+  revealSelectionRequestId?: number;
   value: string;
   workspaceRoot?: string | null;
 }
 
 function beginEditing(
+  documentId: string,
   value: string,
   blocks: RenderedMarkdownBlock[],
   block: RenderedMarkdownBlock,
   index: number,
-  offset = 0,
+  selection: TextSelection | number = 0,
+  options: { focusEditor?: boolean; revealRequestId?: number | null } = {},
 ): ActiveBlock {
-  const caret = Math.max(0, Math.min(block.raw.length, offset));
+  const normalizedSelection = normalizeSelection(
+    block.raw,
+    typeof selection === "number"
+      ? { end: selection, start: selection }
+      : selection,
+  );
   return {
     after: value.slice(block.end),
     before: value.slice(0, block.start),
     block,
     blocks,
+    documentId,
     draft: block.raw,
+    focusEditor: options.focusEditor ?? true,
     index,
-    selection: { direction: "none", end: caret, start: caret },
+    revealRequestId: options.revealRequestId ?? null,
+    selection: normalizedSelection,
   };
+}
+
+function blocksWithActiveDraft(active: ActiveBlock): RenderedMarkdownBlock[] {
+  const delta = active.draft.length - active.block.raw.length;
+  return active.blocks.map((candidate, candidateIndex) =>
+    candidateIndex > active.index
+      ? {
+          ...candidate,
+          end: candidate.end + delta,
+          start: candidate.start + delta,
+        }
+      : candidateIndex === active.index
+        ? {
+            ...candidate,
+            end: candidate.end + delta,
+            raw: active.draft,
+          }
+        : candidate,
+  );
 }
 
 function hiddenInlineDestinationRanges(raw: string): Array<readonly [number, number]> {
@@ -230,10 +273,15 @@ export function LiveEditorPane({
   documentId,
   format = "markdown",
   imageCache = workspaceImageCache,
+  imageCacheRevision = 0,
   onChange,
   onImageRequest,
   onLinkRequest,
+  onPasteImage,
   onPositionChange,
+  onSelectionChange,
+  revealSelection = null,
+  revealSelectionRequestId = 0,
   value,
   workspaceRoot = null,
 }: LiveEditorPaneProps) {
@@ -243,14 +291,20 @@ export function LiveEditorPane({
       ? t("Click to edit this block · Command-click links to open")
       : t("Click to edit this block · Ctrl-click links to open");
   const [active, setActive] = useState<ActiveBlock | null>(null);
-  const activeRef = useRef(active);
-  activeRef.current = active;
+  const [focusedBlockIndex, setFocusedBlockIndex] = useState(0);
+  const currentActive = active?.documentId === documentId ? active : null;
+  const activeRef = useRef(currentActive);
+  activeRef.current = currentActive;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const documentRef = useRef<HTMLElement>(null);
+  const imageReferencesRef = useRef(
+    new WeakMap<HTMLElement, RenderedWorkspaceImageReference>(),
+  );
   const blockRefs = useRef(new Map<number, HTMLDivElement>());
   const restoreFocusIndexRef = useRef<number | null>(null);
-  const shouldRenderDocument = active === null;
+  const pendingRevealScrollRef = useRef(false);
+  const shouldRenderDocument = currentActive === null;
   const renderedDocument = useMemo(
     () =>
       shouldRenderDocument
@@ -258,7 +312,19 @@ export function LiveEditorPane({
         : null,
     [format, shouldRenderDocument, value],
   );
-  const blocks = active?.blocks ?? renderedDocument?.blocks ?? [];
+  const blocks = currentActive?.blocks ?? renderedDocument?.blocks ?? [];
+  const renderedBlockMarkup = useMemo(
+    () =>
+      blocks.map((block) => ({
+        __html:
+          block.html ||
+          `<pre>${block.raw
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")}</pre>`,
+      })),
+    [blocks],
+  );
   const publishEditorPosition = useMemo(
     () => (position: EditorPosition) => {
       const block = activeRef.current?.block;
@@ -271,39 +337,138 @@ export function LiveEditorPane({
     [onPositionChange],
   );
 
-  useEffect(() => setActive(null), [documentId]);
+  useEffect(() => {
+    setActive((current) =>
+      current?.documentId === documentId ? current : null,
+    );
+    setFocusedBlockIndex(0);
+  }, [documentId]);
 
   useEffect(() => {
-    if (!active) return;
-    if (`${active.before}${active.draft}${active.after}` !== value) {
-      setActive(null);
-    }
-  }, [active, value]);
+    setActive((current) => {
+      if (current?.documentId !== documentId) return current;
+      return `${current.before}${current.draft}${current.after}` === value
+        ? current
+        : null;
+    });
+  }, [documentId, value]);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea || !active) return;
+    if (!textarea || !currentActive) return;
     textarea.style.height = "0px";
     textarea.style.height = `${Math.max(38, textarea.scrollHeight)}px`;
-  }, [active?.draft]);
+  }, [currentActive?.draft]);
 
   useLayoutEffect(() => {
-    if (active !== null) return;
+    const textarea = textareaRef.current;
+    if (!textarea || !currentActive || currentActive.revealRequestId === null) {
+      return;
+    }
+    textarea.setSelectionRange(
+      currentActive.selection.start,
+      currentActive.selection.end,
+      currentActive.selection.direction,
+    );
+  }, [
+    currentActive?.documentId,
+    currentActive?.index,
+    currentActive?.revealRequestId,
+  ]);
+
+  useLayoutEffect(() => {
+    if (currentActive !== null) return;
     const restoreIndex = restoreFocusIndexRef.current;
     if (restoreIndex == null) return;
     restoreFocusIndexRef.current = null;
+    setFocusedBlockIndex(restoreIndex);
     blockRefs.current.get(restoreIndex)?.focus();
-  }, [active, blocks]);
+  }, [blocks, currentActive]);
+
+  useEffect(() => {
+    if (blocks.length === 0) {
+      setFocusedBlockIndex(0);
+      return;
+    }
+    setFocusedBlockIndex((current) =>
+      Math.min(Math.max(0, current), blocks.length - 1),
+    );
+  }, [blocks.length]);
+
+  useLayoutEffect(() => {
+    if (!revealSelection) return;
+    const start = Math.min(revealSelection.start, revealSelection.end);
+    const end = Math.max(revealSelection.start, revealSelection.end);
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      end > value.length
+    ) {
+      return;
+    }
+
+    const activeValueMatches =
+      currentActive !== null &&
+      `${currentActive.before}${currentActive.draft}${currentActive.after}` ===
+        value;
+    const effectiveBlocks = activeValueMatches
+      ? blocksWithActiveDraft(currentActive)
+      : renderMarkdownDocument(value, { format }).blocks;
+    const index = effectiveBlocks.findIndex(
+      (block) =>
+        start >= block.start &&
+        end <= block.end &&
+        (start < block.end || block.start === block.end),
+    );
+    const block = effectiveBlocks[index];
+    if (!block) return;
+
+    pendingRevealScrollRef.current = true;
+    setActive(
+      beginEditing(
+        documentId,
+        value,
+        effectiveBlocks,
+        block,
+        index,
+        {
+          direction: revealSelection.direction,
+          end: end - block.start,
+          start: start - block.start,
+        },
+        { focusEditor: false, revealRequestId: revealSelectionRequestId },
+      ),
+    );
+  }, [
+    documentId,
+    format,
+    revealSelection?.direction,
+    revealSelection?.end,
+    revealSelection?.start,
+    revealSelectionRequestId,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!pendingRevealScrollRef.current || !currentActive) return;
+    pendingRevealScrollRef.current = false;
+    textareaRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [
+    currentActive?.documentId,
+    currentActive?.index,
+    currentActive?.selection.end,
+    currentActive?.selection.start,
+  ]);
 
   useEffect(() => {
     const article = documentRef.current;
     if (!article) return;
-    const references = new Map(
-      blocks
-        .flatMap((block) => block.images)
-        .map((reference) => [reference.id, reference]),
-    );
     const leases = new Set<WorkspaceImageLease>();
+    const imageReferences = new WeakMap<
+      HTMLElement,
+      RenderedWorkspaceImageReference
+    >();
+    imageReferencesRef.current = imageReferences;
     let disposed = false;
 
     function showPlaceholder(element: HTMLElement, label: string): void {
@@ -332,7 +497,7 @@ export function LiveEditorPane({
 
     async function loadImage(
       element: HTMLElement,
-      reference: MarkdownImageReference,
+      reference: RenderedWorkspaceImageReference,
     ): Promise<void> {
       const imageAlt = reference.alt || t("Image");
       if (!workspaceRoot) {
@@ -357,7 +522,6 @@ export function LiveEditorPane({
         image.className = "markdown-local-image";
         image.decoding = "async";
         image.draggable = false;
-        image.loading = "lazy";
         if (reference.title) image.title = reference.title;
         image.addEventListener(
           "error",
@@ -374,7 +538,6 @@ export function LiveEditorPane({
         image.src = lease.url;
         element.classList.remove("is-loading", "is-unavailable");
         element.classList.add("is-loaded");
-        element.dataset.imagePath = relativePath;
         element.setAttribute(
           "aria-label",
           onImageRequest
@@ -398,11 +561,18 @@ export function LiveEditorPane({
 
     const pending: Array<{
       element: HTMLElement;
-      reference: MarkdownImageReference;
+      reference: RenderedWorkspaceImageReference;
     }> = [];
-    for (const element of article.querySelectorAll<HTMLElement>("[data-viva-image]")) {
-      const reference = references.get(element.dataset.vivaImage ?? "");
+    const references = blocks.flatMap((block, index) =>
+      currentActive?.index === index ? [] : block.images,
+    );
+    const elements = article.querySelectorAll<HTMLElement>(
+      ".markdown-image-placeholder",
+    );
+    for (const [index, element] of Array.from(elements).entries()) {
+      const reference = references[index];
       if (!reference) continue;
+      imageReferences.set(element, reference);
       const imageAlt = reference.alt || t("Image");
       if (reference.remote) {
         showPlaceholder(element, fmt("Remote image blocked · %@", imageAlt));
@@ -443,44 +613,68 @@ export function LiveEditorPane({
       observer?.disconnect();
       for (const lease of leases) lease.release();
       leases.clear();
+      if (imageReferencesRef.current === imageReferences) {
+        imageReferencesRef.current = new WeakMap();
+      }
     };
-  }, [blocks, documentId, fmt, imageCache, onImageRequest, workspaceRoot]);
+  }, [
+    blocks,
+    currentActive?.index,
+    documentId,
+    fmt,
+    imageCache,
+    imageCacheRevision,
+    onImageRequest,
+    workspaceRoot,
+  ]);
 
   function activate(
     block: RenderedMarkdownBlock,
     index: number,
-    offset = 0,
+    selection: TextSelection | number = 0,
   ): void {
-    if (active?.index === index) return;
-    if (!active) {
-      setActive(beginEditing(value, blocks, block, index, offset));
+    setFocusedBlockIndex(index);
+    if (currentActive?.index === index) {
+      const nextSelection = normalizeSelection(
+        currentActive.draft,
+        typeof selection === "number"
+          ? { end: selection, start: selection }
+          : selection,
+      );
+      if (
+        nextSelection.start === currentActive.selection.start &&
+        nextSelection.end === currentActive.selection.end &&
+        nextSelection.direction === currentActive.selection.direction
+      ) {
+        return;
+      }
+      setActive((current) =>
+        current?.documentId === documentId && current.index === index
+          ? { ...current, selection: nextSelection }
+          : current,
+      );
       return;
     }
-    const delta = active.draft.length - active.block.raw.length;
-    const adjustedStart = block.start + (index > active.index ? delta : 0);
-    const adjustedEnd = block.end + (index > active.index ? delta : 0);
-    const adjusted = {
-      ...block,
-      end: adjustedEnd,
-      raw: value.slice(adjustedStart, adjustedEnd),
-      start: adjustedStart,
-    };
-    const nextBlocks = active.blocks.map((candidate, candidateIndex) =>
-      candidateIndex > active.index
-        ? {
-            ...candidate,
-            end: candidate.end + delta,
-            start: candidate.start + delta,
-          }
-        : candidateIndex === active.index
-          ? {
-              ...candidate,
-              end: candidate.end + delta,
-              raw: active.draft,
-            }
-          : candidate,
+    if (!currentActive) {
+      setActive(
+        beginEditing(documentId, value, blocks, block, index, selection),
+      );
+      return;
+    }
+
+    const nextBlocks = blocksWithActiveDraft(currentActive);
+    const adjusted = nextBlocks[index];
+    if (!adjusted) return;
+    setActive(
+      beginEditing(
+        documentId,
+        value,
+        nextBlocks,
+        adjusted,
+        index,
+        selection,
+      ),
     );
-    setActive(beginEditing(value, nextBlocks, adjusted, index, offset));
   }
 
   function activateEmpty(): void {
@@ -492,19 +686,25 @@ export function LiveEditorPane({
       sourceLine: 1,
       start: 0,
     };
-    setActive(beginEditing(value, [], block, 0));
+    setActive(beginEditing(documentId, value, [], block, 0));
   }
 
   function updateDraft(draft: string): void {
-    if (!active) return;
-    const baseline = `${active.before}${active.block.raw}${active.after}`;
-    const nextValue = replaceLiveMarkdownBlock(baseline, active.block, draft);
+    if (!currentActive) return;
+    const baseline = `${currentActive.before}${currentActive.block.raw}${currentActive.after}`;
+    const nextValue = replaceLiveMarkdownBlock(
+      baseline,
+      currentActive.block,
+      draft,
+    );
     const normalizedDraft = nextValue.slice(
-      active.before.length,
-      nextValue.length - active.after.length,
+      currentActive.before.length,
+      nextValue.length - currentActive.after.length,
     );
     setActive((current) =>
-      current ? { ...current, draft: normalizedDraft } : current,
+      current?.documentId === documentId
+        ? { ...current, draft: normalizedDraft }
+        : current,
     );
     onChange(nextValue);
   }
@@ -515,13 +715,14 @@ export function LiveEditorPane({
     index: number,
   ): void {
     const target = event.target instanceof Element ? event.target : null;
-    const image = target?.closest<HTMLElement>("[data-viva-image].is-loaded");
+    const image = target?.closest<HTMLElement>(
+      ".markdown-image-placeholder.is-loaded",
+    );
     if (image && onImageRequest) {
+      const reference = imageReferencesRef.current.get(image);
+      if (!reference) return;
       event.preventDefault();
-      onImageRequest(
-        image.dataset.imageSrc ?? "",
-        image.dataset.imageAlt || t("Image"),
-      );
+      onImageRequest(reference.source, reference.alt || t("Image"));
       return;
     }
     const anchor = target?.closest<HTMLAnchorElement>("a[href]");
@@ -539,15 +740,36 @@ export function LiveEditorPane({
     block: RenderedMarkdownBlock,
     index: number,
   ): void {
-    if (event.key !== "Enter" && event.key !== " ") return;
     const target = event.target instanceof Element ? event.target : null;
-    const image = target?.closest<HTMLElement>("[data-viva-image].is-loaded");
+    if (event.target === event.currentTarget) {
+      const destination =
+        event.key === "ArrowDown"
+          ? Math.min(index + 1, blocks.length - 1)
+          : event.key === "ArrowUp"
+            ? Math.max(index - 1, 0)
+            : event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? blocks.length - 1
+                : null;
+      if (destination !== null) {
+        event.preventDefault();
+        setFocusedBlockIndex(destination);
+        const element = blockRefs.current.get(destination);
+        element?.focus();
+        element?.scrollIntoView?.({ block: "nearest" });
+        return;
+      }
+    }
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const image = target?.closest<HTMLElement>(
+      ".markdown-image-placeholder.is-loaded",
+    );
     if (image && onImageRequest) {
+      const reference = imageReferencesRef.current.get(image);
+      if (!reference) return;
       event.preventDefault();
-      onImageRequest(
-        image.dataset.imageSrc ?? "",
-        image.dataset.imageAlt || t("Image"),
-      );
+      onImageRequest(reference.source, reference.alt || t("Image"));
       return;
     }
     if (event.target !== event.currentTarget) return;
@@ -578,12 +800,15 @@ export function LiveEditorPane({
         <article className="live-editor-pane__document" ref={documentRef}>
           {blocks.length ? (
             blocks.map((block, index) =>
-              active?.index === index ? (
+              currentActive?.index === index ? (
                 <div
                   className="live-editor-pane__active"
                   key={`${block.start}:${index}`}
                   onKeyDownCapture={(event) => {
-                    if (event.key === "Escape") {
+                    if (
+                      event.key === "Escape" &&
+                      !isImeKeyEvent(event.nativeEvent)
+                    ) {
                       event.preventDefault();
                       restoreFocusIndexRef.current = index;
                       textareaRef.current?.blur();
@@ -593,20 +818,37 @@ export function LiveEditorPane({
                   <span className="live-editor-pane__mode">{t("Markdown")}</span>
                   <EditorPane
                     ariaLabel={fmt("Editing block from line %d", block.sourceLine)}
-                    autoFocus
+                    autoFocus={currentActive.focusEditor}
                     className="live-editor-pane__source"
                     onBlur={closeActiveBlock}
                     onChange={updateDraft}
                     onPositionChange={publishEditorPosition}
-                    onSelectionChange={(selection) =>
-                      setActive((current) =>
-                        current ? { ...current, selection } : current,
-                      )
+                    onPasteImage={
+                      onPasteImage
+                        ? (file, selection) =>
+                            onPasteImage(file, {
+                              direction: selection.direction,
+                              end: currentActive.before.length + selection.end,
+                              start: currentActive.before.length + selection.start,
+                            })
+                        : undefined
                     }
+                    onSelectionChange={(selection) => {
+                      setActive((current) =>
+                        current?.documentId === documentId
+                          ? { ...current, selection }
+                          : current,
+                      );
+                      onSelectionChange?.({
+                        direction: selection.direction,
+                        end: currentActive.before.length + selection.end,
+                        start: currentActive.before.length + selection.start,
+                      });
+                    }}
                     ref={textareaRef}
-                    selection={active.selection}
+                    selection={currentActive.selection}
                     showPosition={false}
-                    value={active.draft}
+                    value={currentActive.draft}
                   />
                 </div>
               ) : (
@@ -627,24 +869,24 @@ export function LiveEditorPane({
                   label={t("Live block menu")}
                 >
                   <div
-                    aria-label={editBlockHint}
+                    aria-description={editBlockHint}
+                    aria-label={`${block.sourceLine}. ${
+                      block.raw.trim().replace(/\s+/gu, " ").slice(0, 160) ||
+                      t("Start writing…")
+                    }`}
                     className={`live-editor-pane__block markdown-body${block.html ? "" : " is-source-only"}`}
-                    dangerouslySetInnerHTML={{
-                      __html:
-                        block.html ||
-                        `<pre>${block.raw
-                          .replaceAll("&", "&amp;")
-                          .replaceAll("<", "&lt;")
-                          .replaceAll(">", "&gt;")}</pre>`,
-                    }}
+                    dangerouslySetInnerHTML={
+                      renderedBlockMarkup[index] ?? EMPTY_RENDERED_MARKUP
+                    }
                     onClick={(event) => handleRenderedClick(event, block, index)}
+                    onFocus={() => setFocusedBlockIndex(index)}
                     onKeyDown={(event) => handleBlockKeyDown(event, block, index)}
                     ref={(element) => {
                       if (element) blockRefs.current.set(index, element);
                       else blockRefs.current.delete(index);
                     }}
                     role="group"
-                    tabIndex={0}
+                    tabIndex={focusedBlockIndex === index ? 0 : -1}
                     title={editBlockHint}
                   />
                 </ContextMenu>

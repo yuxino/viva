@@ -21,9 +21,7 @@ describe("renderMarkdown", () => {
     );
     expect(rendered.html).not.toContain("<script");
     expect(rendered.html).not.toContain("<img");
-    expect(rendered.html).toContain(
-      'data-image-src="https://example.com/pixel.png"',
-    );
+    expect(rendered.html).not.toContain("data-image-");
     expect(rendered.html).toContain('aria-label="private"');
     expect(rendered.images).toEqual([
       {
@@ -40,15 +38,16 @@ describe("renderMarkdown", () => {
     const rendered = renderMarkdown("![](art/room.png)");
 
     expect(rendered.images?.[0]?.alt).toBe("");
-    expect(rendered.html).toContain('data-image-alt=""');
+    expect(rendered.html).not.toContain("data-image-");
     expect(rendered.html).not.toContain(">Image<");
   });
 
-  it("emits inert metadata for local images without assigning a browser src", () => {
+  it("emits an inert placeholder and a separate trusted local image reference", () => {
     const rendered = renderMarkdown('![Cover](../art/cover%20one.png "Draft")');
 
-    expect(rendered.html).toContain('data-viva-image="viva-image-1"');
-    expect(rendered.html).toContain('data-image-src="../art/cover%20one.png"');
+    expect(rendered.html).toContain('class="markdown-image-placeholder"');
+    expect(rendered.html).not.toContain("data-viva-image");
+    expect(rendered.html).not.toContain("data-image-");
     expect(rendered.html).not.toContain("<img");
     expect(rendered.images).toEqual([
       {
@@ -140,10 +139,92 @@ describe("renderMarkdown", () => {
     expect(rendered.html).toContain("language-plaintext");
     expect(rendered.html).not.toContain("<script>");
   });
+
+  it("maps fenced code, indented code, tables, and dividers to source lines", () => {
+    const rendered = renderMarkdown(
+      [
+        "```ts",
+        "const answer = 42;",
+        "```",
+        "",
+        "    indented()",
+        "",
+        "| Name | Value |",
+        "| --- | --- |",
+        "| Viva | Quiet |",
+        "",
+        "---",
+      ].join("\n"),
+    );
+    const template = document.createElement("template");
+    template.innerHTML = rendered.html;
+
+    expect(
+      template.content
+        .querySelector("figure.markdown-code-block")
+        ?.getAttribute("data-source-line"),
+    ).toBe("1");
+    expect(
+      template.content
+        .querySelector("pre[data-source-line]")
+        ?.getAttribute("data-source-line"),
+    ).toBe("5");
+    expect(
+      template.content.querySelector("table")?.getAttribute("data-source-line"),
+    ).toBe("7");
+    expect(
+      template.content.querySelector("hr")?.getAttribute("data-source-line"),
+    ).toBe("11");
+  });
+
+  it("keeps one source mapping when nested blocks begin on the same line", () => {
+    const rendered = renderMarkdown(
+      [
+        "> ```ts",
+        "> const answer = 42;",
+        "> ```",
+        "",
+        "- Parent",
+        "  - Child",
+      ].join("\n"),
+    );
+    const template = document.createElement("template");
+    template.innerHTML = rendered.html;
+
+    expect(
+      template.content.querySelectorAll('[data-source-line="1"]'),
+    ).toHaveLength(1);
+    expect(
+      template.content.querySelectorAll('[data-source-line="5"]'),
+    ).toHaveLength(1);
+    expect(
+      template.content.querySelectorAll('[data-source-line="6"]'),
+    ).toHaveLength(1);
+  });
 });
 
 describe("countWords", () => {
   it("counts visible prose instead of Markdown punctuation", () => {
     expect(countWords("# A quiet tool\n\n**returns** attention.")).toBe(5);
+  });
+
+  it("counts CJK characters alongside Latin words", () => {
+    expect(countWords("今天用 Viva 写 Markdown。")).toBe(6);
+    expect(countWords("静かな文章")).toBe(5);
+  });
+
+  it("counts link labels without counting destinations or fenced code", () => {
+    expect(
+      countWords(
+        [
+          "[Viva writer](https://example.com/private/path)",
+          "https://example.com/not-prose",
+          "",
+          "```ts",
+          "const hidden = 42;",
+          "```",
+        ].join("\n"),
+      ),
+    ).toBe(2);
   });
 });

@@ -22,3 +22,28 @@ export async function readClipboardText(): Promise<string | null> {
     return null;
   }
 }
+
+export async function readClipboardImage(): Promise<File | null> {
+  const clipboard = navigator.clipboard;
+  if (typeof clipboard?.read !== "function") return null;
+
+  try {
+    const items = await clipboard.read();
+    for (const item of items) {
+      for (const type of item.types) {
+        if (!type.startsWith("image/")) continue;
+        try {
+          const blob = await item.getType(type);
+          return new File([blob], "clipboard-image", {
+            type: blob.type || type,
+          });
+        } catch {
+          // Try another image representation before falling back to text.
+        }
+      }
+    }
+  } catch {
+    // Text paste still has its existing permission/error fallback below.
+  }
+  return null;
+}

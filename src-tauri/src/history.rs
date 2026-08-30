@@ -279,6 +279,95 @@ impl HistoryStore {
         existing_child_directory(&workspace, &document_key(&document.relative_path))
     }
 
+    #[cfg(test)]
+    fn move_document_scope_best_effort(
+        &self,
+        workspace_root: &Path,
+        source_relative_path: &str,
+        destination_relative_path: &str,
+    ) -> bool {
+        self.move_document_scopes_best_effort(
+            workspace_root,
+            &[(
+                source_relative_path.to_owned(),
+                destination_relative_path.to_owned(),
+            )],
+        )
+    }
+
+    fn move_document_scopes_best_effort(
+        &self,
+        workspace_root: &Path,
+        mappings: &[(String, String)],
+    ) -> bool {
+        if mappings.is_empty() {
+            return true;
+        }
+
+        let history_mutex = history_mutex(&self.root);
+        let _guard = lock_history(&history_mutex);
+        let Ok(_process_guard) = self.process_lock() else {
+            return false;
+        };
+
+        let mut succeeded = true;
+        for (source_relative_path, destination_relative_path) in mappings {
+            if source_relative_path == destination_relative_path {
+                continue;
+            }
+            succeeded = self
+                .move_document_scope_unlocked(
+                    workspace_root,
+                    source_relative_path,
+                    destination_relative_path,
+                )
+                .is_ok()
+                && succeeded;
+        }
+        succeeded
+    }
+
+    fn move_document_scope_unlocked(
+        &self,
+        workspace_root: &Path,
+        source_relative_path: &str,
+        destination_relative_path: &str,
+    ) -> CommandResult<()> {
+        let Some(root) = existing_directory(&self.root)? else {
+            return Ok(());
+        };
+        let Some(workspace) = existing_child_directory(&root, &workspace_key(workspace_root)?)?
+        else {
+            return Ok(());
+        };
+        let Some(source) =
+            existing_child_directory(&workspace, &document_key(source_relative_path))?
+        else {
+            return Ok(());
+        };
+        let destination = workspace.join(document_key(destination_relative_path));
+        match fs::symlink_metadata(&destination) {
+            Ok(_) => return Err(history_scope_collision_error()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(history_io_error(
+                    "Could not inspect the renamed local history scope",
+                    error,
+                ));
+            }
+        }
+
+        rename_history_directory_noclobber(&source, &destination).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                history_scope_collision_error()
+            } else {
+                history_io_error("Could not preserve local history after the rename", error)
+            }
+        })?;
+        sync_parent_best_effort(&workspace);
+        Ok(())
+    }
+
     fn prune_document(&self, directory: &Path) -> CommandResult<()> {
         let mut versions = read_valid_versions(directory)?;
         sort_newest_first(&mut versions);
@@ -357,6 +446,20 @@ pub(crate) fn record_document_version_best_effort(
     content: &str,
 ) -> bool {
     record_document_versions_best_effort(app, workspace_root, relative_path, &[content])
+}
+
+pub(crate) fn move_document_histories_best_effort(
+    app: &AppHandle,
+    workspace_root: &Path,
+    mappings: &[(String, String)],
+) -> bool {
+    if mappings.is_empty() {
+        return true;
+    }
+    let Ok(store) = HistoryStore::for_app(app) else {
+        return false;
+    };
+    store.move_document_scopes_best_effort(workspace_root, mappings)
 }
 
 pub(crate) fn record_document_versions_best_effort(
@@ -940,6 +1043,13 @@ fn history_not_found_error() -> CommandError {
     )
 }
 
+fn history_scope_collision_error() -> CommandError {
+    CommandError::new(
+        ErrorCode::AlreadyExists,
+        "Local history already exists for the renamed document.",
+    )
+}
+
 fn corrupt_history_error() -> CommandError {
     CommandError::new(
         ErrorCode::HistoryCorrupt,
@@ -953,6 +1063,55 @@ fn history_io_error(context: &str, error: std::io::Error) -> CommandError {
         _ => ErrorCode::Io,
     };
     CommandError::new(code, format!("{context}: {error}"))
+}
+
+#[cfg(unix)]
+fn rename_history_directory_noclobber(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use rustix::fs::{CWD, RenameFlags, renameat_with};
+
+    renameat_with(CWD, source, CWD, destination, RenameFlags::NOREPLACE)
+        .map_err(|error| std::io::Error::from_raw_os_error(error.raw_os_error()))
+}
+
+#[cfg(target_os = "windows")]
+fn rename_history_directory_noclobber(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::iter;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+
+    let source: Vec<u16> = source
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+    // With no MOVEFILE_REPLACE_EXISTING flag, Windows performs the rename as a
+    // single fail-if-exists operation instead of a racy existence check.
+    let succeeded = unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), 0) };
+    if succeeded != 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
+fn rename_history_directory_noclobber(source: &Path, destination: &Path) -> std::io::Result<()> {
+    match fs::symlink_metadata(destination) {
+        Ok(_) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "the destination history scope already exists",
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    fs::rename(source, destination)
 }
 
 #[cfg(unix)]
@@ -978,6 +1137,7 @@ mod tests {
     const HISTORY_ROOT_ENV: &str = "VIVA_HISTORY_LOCK_TEST_ROOT";
     const HISTORY_ATTEMPT_ENV: &str = "VIVA_HISTORY_LOCK_TEST_ATTEMPT";
     const HISTORY_COMPLETE_ENV: &str = "VIVA_HISTORY_LOCK_TEST_COMPLETE";
+    const HISTORY_MOVE_CHILD_ENV: &str = "VIVA_HISTORY_MOVE_LOCK_TEST_CHILD";
 
     fn history_document(workspace: &TempDir, relative_path: &str) -> HistoryDocument {
         let workspace_root = fs::canonicalize(workspace.path()).unwrap();
@@ -1021,6 +1181,26 @@ mod tests {
         HistoryStore::new(history_root)
             .record(&document, "from another process")
             .unwrap();
+        fs::write(complete_path, b"complete").unwrap();
+    }
+
+    #[test]
+    fn cross_process_history_move_child() {
+        if std::env::var_os(HISTORY_MOVE_CHILD_ENV).is_none() {
+            return;
+        }
+        let workspace_root = PathBuf::from(std::env::var_os(HISTORY_WORKSPACE_ENV).unwrap());
+        let history_root = PathBuf::from(std::env::var_os(HISTORY_ROOT_ENV).unwrap());
+        let attempt_path = PathBuf::from(std::env::var_os(HISTORY_ATTEMPT_ENV).unwrap());
+        let complete_path = PathBuf::from(std::env::var_os(HISTORY_COMPLETE_ENV).unwrap());
+        fs::write(attempt_path, b"attempting").unwrap();
+        assert!(
+            HistoryStore::new(history_root).move_document_scope_best_effort(
+                &workspace_root,
+                "draft.md",
+                "final.md",
+            )
+        );
         fs::write(complete_path, b"complete").unwrap();
     }
 
@@ -1105,6 +1285,78 @@ mod tests {
         assert!(store.record_batch_best_effort(&document, &["saved"]));
     }
 
+    #[test]
+    fn history_move_waits_for_the_in_process_history_lock() {
+        let workspace = tempdir().unwrap();
+        let app_data = tempdir().unwrap();
+        let source = history_document(&workspace, "draft.md");
+        let destination = history_document(&workspace, "final.md");
+        let store = test_store(&app_data);
+        store.record(&source, "source history").unwrap();
+        fs::remove_file(workspace.path().join("final.md")).unwrap();
+
+        let mutex = history_mutex(&store.root);
+        let guard = lock_history(&mutex);
+        let worker_store = store.clone();
+        let workspace_root = source.workspace_root.clone();
+        let (result_tx, result_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            result_tx
+                .send(worker_store.move_document_scope_best_effort(
+                    &workspace_root,
+                    "draft.md",
+                    "final.md",
+                ))
+                .unwrap();
+        });
+
+        assert!(result_rx.recv_timeout(Duration::from_millis(200)).is_err());
+        drop(guard);
+        assert!(result_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+        worker.join().unwrap();
+        assert!(store.list(&source).unwrap().is_empty());
+        assert_eq!(store.list(&destination).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn history_move_waits_for_the_cross_process_history_lock() {
+        let workspace = tempdir().unwrap();
+        let app_data = tempdir().unwrap();
+        let source = history_document(&workspace, "draft.md");
+        let destination = history_document(&workspace, "final.md");
+        let store = test_store(&app_data);
+        store.record(&source, "source history").unwrap();
+        fs::remove_file(workspace.path().join("final.md")).unwrap();
+        let attempt_path = app_data.path().join("move-child-attempting");
+        let complete_path = app_data.path().join("move-child-complete");
+        let guard = store.process_lock().unwrap();
+
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("history::tests::cross_process_history_move_child")
+            .arg("--nocapture")
+            .env(HISTORY_MOVE_CHILD_ENV, "1")
+            .env(HISTORY_WORKSPACE_ENV, &source.workspace_root)
+            .env(HISTORY_ROOT_ENV, &store.root)
+            .env(HISTORY_ATTEMPT_ENV, &attempt_path)
+            .env(HISTORY_COMPLETE_ENV, &complete_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+
+        wait_for_path(&attempt_path, Duration::from_secs(5));
+        assert!(!complete_path.exists());
+        assert!(child.try_wait().unwrap().is_none());
+
+        drop(guard);
+        wait_for_path(&complete_path, Duration::from_secs(5));
+        assert!(child.wait().unwrap().success());
+        assert!(store.list(&source).unwrap().is_empty());
+        assert_eq!(store.list(&destination).unwrap().len(), 1);
+    }
+
     fn wait_for_path(path: &Path, timeout: Duration) {
         let deadline = Instant::now() + timeout;
         while !path.exists() && Instant::now() < deadline {
@@ -1133,6 +1385,90 @@ mod tests {
         assert_eq!(
             fs::read_to_string(workspace.path().join("notes/a.md")).unwrap(),
             "current"
+        );
+    }
+
+    #[test]
+    fn moves_document_history_to_a_renamed_relative_path_without_losing_versions() {
+        let workspace = tempdir().unwrap();
+        let app_data = tempdir().unwrap();
+        let source = history_document(&workspace, "notes/draft.md");
+        let store = test_store(&app_data);
+        store.record(&source, "first").unwrap();
+        store.record(&source, "second").unwrap();
+
+        fs::rename(
+            workspace.path().join("notes/draft.md"),
+            workspace.path().join("notes/final.md"),
+        )
+        .unwrap();
+        let destination = HistoryDocument {
+            workspace_root: source.workspace_root.clone(),
+            relative_path: "notes/final.md".to_owned(),
+            name: "final.md".to_owned(),
+        };
+
+        assert!(store.move_document_scope_best_effort(
+            &source.workspace_root,
+            &source.relative_path,
+            &destination.relative_path,
+        ));
+        assert!(store.list(&source).unwrap().is_empty());
+        let versions = store.list(&destination).unwrap();
+        assert_eq!(versions.len(), 2);
+        let contents: HashSet<_> = versions
+            .iter()
+            .map(|entry| store.read(&destination, &entry.version_id).unwrap().content)
+            .collect();
+        assert_eq!(
+            contents,
+            HashSet::from(["first".to_owned(), "second".to_owned()])
+        );
+    }
+
+    #[test]
+    fn history_scope_move_never_clobbers_an_existing_destination() {
+        let workspace = tempdir().unwrap();
+        let app_data = tempdir().unwrap();
+        let source = history_document(&workspace, "draft.md");
+        let destination = history_document(&workspace, "final.md");
+        let store = test_store(&app_data);
+        store.record(&source, "source history").unwrap();
+        store.record(&destination, "destination history").unwrap();
+
+        assert!(!store.move_document_scope_best_effort(
+            &source.workspace_root,
+            &source.relative_path,
+            &destination.relative_path,
+        ));
+        assert_eq!(store.list(&source).unwrap().len(), 1);
+        assert_eq!(store.list(&destination).unwrap().len(), 1);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_history_scope_rename_fails_if_the_destination_exists() {
+        let root = tempdir().unwrap();
+        let source = root.path().join("source");
+        let destination = root.path().join("destination");
+        fs::create_dir(&source).unwrap();
+        fs::create_dir(&destination).unwrap();
+        fs::write(source.join("marker"), "source").unwrap();
+        fs::write(destination.join("marker"), "destination").unwrap();
+
+        assert!(rename_history_directory_noclobber(&source, &destination).is_err());
+        assert_eq!(fs::read_to_string(source.join("marker")).unwrap(), "source");
+        assert_eq!(
+            fs::read_to_string(destination.join("marker")).unwrap(),
+            "destination"
+        );
+
+        let available_destination = root.path().join("available");
+        rename_history_directory_noclobber(&source, &available_destination).unwrap();
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read_to_string(available_destination.join("marker")).unwrap(),
+            "source"
         );
     }
 

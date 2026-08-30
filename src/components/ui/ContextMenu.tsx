@@ -14,6 +14,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { isTauri } from "@tauri-apps/api/core";
+import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { Menu as NativeMenu, type MenuOptions } from "@tauri-apps/api/menu";
 import type { MenuItem } from "./Menu";
 import { cx } from "./utils";
@@ -28,6 +29,7 @@ export interface ContextMenuProps {
   children: ReactElement<ContextMenuTriggerProps>;
   items: ReadonlyArray<MenuItem>;
   label: string;
+  preferCustomTextMenu?: boolean;
 }
 
 interface MenuRequest {
@@ -36,7 +38,12 @@ interface MenuRequest {
   trigger: HTMLElement;
 }
 
-export function ContextMenu({ children, items, label }: ContextMenuProps) {
+export function ContextMenu({
+  children,
+  items,
+  label,
+  preferCustomTextMenu = false,
+}: ContextMenuProps) {
   const id = useId();
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -62,7 +69,9 @@ export function ContextMenu({ children, items, label }: ContextMenuProps) {
     (edge: "first" | "last") => {
       const indexes = enabledIndexes();
       const index = edge === "first" ? indexes[0] : indexes.at(-1);
-      if (index !== undefined) itemRefs.current[index]?.focus();
+      if (index === undefined) return false;
+      itemRefs.current[index]?.focus();
+      return true;
     },
     [enabledIndexes],
   );
@@ -83,7 +92,7 @@ export function ContextMenu({ children, items, label }: ContextMenuProps) {
         Math.max(edge, request.top),
       ),
     });
-    focusBoundary("first");
+    if (!focusBoundary("first")) menu.focus();
   }, [focusBoundary, request]);
 
   useEffect(() => {
@@ -137,9 +146,21 @@ export function ContextMenu({ children, items, label }: ContextMenuProps) {
     }
   }
 
+  function handleMenuSurfaceKeyDown(
+    event: KeyboardEvent<HTMLDivElement>,
+  ): void {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close(true);
+    } else if (event.key === "Tab") {
+      close(false);
+    }
+  }
+
   const trigger = Children.only(children);
 
-  async function openNativeMenu(): Promise<void> {
+  async function openNativeMenu(menuRequest: MenuRequest): Promise<void> {
     const nativeItems: NonNullable<MenuOptions["items"]> = [];
     for (const item of items) {
       if (item.separatorBefore) nativeItems.push({ item: "Separator" });
@@ -152,10 +173,25 @@ export function ContextMenu({ children, items, label }: ContextMenuProps) {
     }
     const menu = await NativeMenu.new({ items: nativeItems });
     try {
-      await menu.popup();
+      await menu.popup(
+        new LogicalPosition(menuRequest.left, menuRequest.top),
+      );
     } finally {
-      await menu.close();
+      await menu.close().catch(() => undefined);
     }
+  }
+
+  function openWebMenu(menuRequest: MenuRequest): void {
+    setPosition({ left: menuRequest.left, top: menuRequest.top });
+    setRequest(menuRequest);
+  }
+
+  function openRequestedMenu(menuRequest: MenuRequest): void {
+    if (isTauri()) {
+      void openNativeMenu(menuRequest).catch(() => openWebMenu(menuRequest));
+      return;
+    }
+    openWebMenu(menuRequest);
   }
 
   function isNativeTextTarget(target: EventTarget | null): boolean {
@@ -172,21 +208,15 @@ export function ContextMenu({ children, items, label }: ContextMenuProps) {
         onContextMenu: (event) => {
           trigger.props.onContextMenu?.(event);
           if (event.defaultPrevented) return;
-          if (isTauri() && isNativeTextTarget(event.target)) return;
-          event.preventDefault();
-          if (isTauri()) {
-            void openNativeMenu().catch(() => {
-              setPosition({ left: event.clientX, top: event.clientY });
-              setRequest({
-                left: event.clientX,
-                top: event.clientY,
-                trigger: event.currentTarget,
-              });
-            });
+          if (
+            isTauri() &&
+            isNativeTextTarget(event.target) &&
+            !preferCustomTextMenu
+          ) {
             return;
           }
-          setPosition({ left: event.clientX, top: event.clientY });
-          setRequest({
+          event.preventDefault();
+          openRequestedMenu({
             left: event.clientX,
             top: event.clientY,
             trigger: event.currentTarget,
@@ -195,15 +225,20 @@ export function ContextMenu({ children, items, label }: ContextMenuProps) {
         onKeyDown: (event) => {
           trigger.props.onKeyDown?.(event);
           if (event.defaultPrevented) return;
-          if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu") {
-            event.preventDefault();
-            if (isTauri() && !isNativeTextTarget(event.target)) {
-              void openNativeMenu();
+          if (
+            (event.shiftKey && event.key === "F10") ||
+            event.key === "ContextMenu"
+          ) {
+            if (
+              isTauri() &&
+              isNativeTextTarget(event.target) &&
+              !preferCustomTextMenu
+            ) {
               return;
             }
+            event.preventDefault();
             const rect = event.currentTarget.getBoundingClientRect();
-            setPosition({ left: rect.left + 12, top: rect.top + 12 });
-            setRequest({
+            openRequestedMenu({
               left: rect.left + 12,
               top: rect.top + 12,
               trigger: event.currentTarget,
@@ -217,9 +252,11 @@ export function ContextMenu({ children, items, label }: ContextMenuProps) {
               aria-label={label}
               className="viva-menu viva-context-menu"
               id={id}
+              onKeyDown={handleMenuSurfaceKeyDown}
               ref={menuRef}
               role="menu"
               style={position}
+              tabIndex={-1}
             >
               {items.map((item, index) => (
                 <div className="viva-menu__entry" key={item.id}>
@@ -230,6 +267,7 @@ export function ContextMenu({ children, items, label }: ContextMenuProps) {
                     className={cx("viva-menu__item", item.danger && "is-danger")}
                     disabled={item.disabled}
                     onClick={() => {
+                      request.trigger.focus({ preventScroll: true });
                       item.onSelect();
                       close(false);
                     }}

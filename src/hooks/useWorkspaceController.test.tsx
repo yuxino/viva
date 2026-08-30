@@ -11,25 +11,35 @@ import {
 
 const nativeMocks = vi.hoisted(() => ({
   chooseSavePath: vi.fn(),
+  createDocument: vi.fn(),
+  createWorkspaceDirectory: vi.fn(),
+  duplicateWorkspaceEntry: vi.fn(),
   inspectSaveDestination: vi.fn(),
   openWorkspace: vi.fn(),
   readDocument: vi.fn(),
+  renameWorkspaceEntry: vi.fn(),
   saveDocumentAs: vi.fn(),
   searchWorkspace: vi.fn(),
+  trashWorkspaceEntry: vi.fn(),
   writeDocument: vi.fn(),
 }));
 
 vi.mock("../lib/native", () => ({
   chooseSavePath: nativeMocks.chooseSavePath,
   chooseWorkspace: vi.fn(),
+  createDocument: nativeMocks.createDocument,
+  createWorkspaceDirectory: nativeMocks.createWorkspaceDirectory,
   describeNativeError: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
+  duplicateWorkspaceEntry: nativeMocks.duplicateWorkspaceEntry,
   hasNativeShell: () => false,
   inspectSaveDestination: nativeMocks.inspectSaveDestination,
   openWorkspace: nativeMocks.openWorkspace,
   readDocument: nativeMocks.readDocument,
+  renameWorkspaceEntry: nativeMocks.renameWorkspaceEntry,
   saveDocumentAs: nativeMocks.saveDocumentAs,
   searchWorkspace: nativeMocks.searchWorkspace,
+  trashWorkspaceEntry: nativeMocks.trashWorkspaceEntry,
   writeDocument: nativeMocks.writeDocument,
 }));
 
@@ -126,6 +136,37 @@ describe("useWorkspaceController search", () => {
     });
     expect(result.result.current.searchResults).toEqual([newestResult]);
     expect(result.result.current.status.tone).not.toBe("error");
+  });
+
+  it("invalidates an in-flight query immediately when search is cleared", async () => {
+    const inFlight = deferred<SearchMatch[]>();
+    nativeMocks.searchWorkspace.mockReturnValueOnce(inFlight.promise);
+    const result = renderHook(() => useWorkspaceController());
+    await openWorkspace(result);
+
+    let staleSearch!: Promise<void>;
+    act(() => {
+      staleSearch = result.result.current.runSearch("old");
+    });
+    await act(async () => {
+      await result.result.current.runSearch("");
+    });
+    expect(result.result.current.searchResults).toEqual([]);
+    expect(result.result.current.searching).toBe(false);
+
+    await act(async () => {
+      inFlight.resolve([
+        {
+          relativePath: "old.md",
+          line: 1,
+          column: 1,
+          preview: "stale result",
+        },
+      ]);
+      await staleSearch;
+    });
+    expect(result.result.current.searchResults).toEqual([]);
+    expect(result.result.current.searching).toBe(false);
   });
 
   it("ignores an older query error after the newest query succeeds", async () => {
@@ -232,6 +273,131 @@ describe("useWorkspaceController workspace isolation", () => {
     nativeMocks.saveDocumentAs.mockReset();
     nativeMocks.searchWorkspace.mockReset();
     nativeMocks.writeDocument.mockReset();
+  });
+
+  it("returns false when there is no current workspace to refresh", async () => {
+    const result = renderHook(() => useWorkspaceController());
+
+    let refreshed = true;
+    await act(async () => {
+      refreshed = await result.result.current.refreshCurrentWorkspace();
+    });
+
+    expect(refreshed).toBe(false);
+    expect(nativeMocks.openWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the current workspace tree without replacing open documents", async () => {
+    const refreshedWorkspace: WorkspaceTree = {
+      ...workspace("/one", "One"),
+      children: [
+        {
+          name: "new.md",
+          relativePath: "new.md",
+          kind: "file",
+          children: [],
+        },
+      ],
+    };
+    nativeMocks.openWorkspace
+      .mockResolvedValueOnce(workspace("/one", "One"))
+      .mockResolvedValueOnce(refreshedWorkspace);
+    nativeMocks.readDocument.mockResolvedValue(noteSnapshot("draft", "a"));
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+    await act(async () => {
+      await result.result.current.openDocument("note.md");
+    });
+
+    let refreshed = false;
+    await act(async () => {
+      refreshed = await result.result.current.refreshCurrentWorkspace();
+    });
+
+    expect(refreshed).toBe(true);
+    expect(nativeMocks.openWorkspace).toHaveBeenNthCalledWith(2, "/one");
+    expect(result.result.current.state.workspace).toEqual(refreshedWorkspace);
+    expect(result.result.current.state.documents["note.md"]?.content).toBe(
+      "draft",
+    );
+  });
+
+  it("ignores a public refresh that finishes after switching workspaces", async () => {
+    const pendingRefresh = deferred<WorkspaceTree>();
+    nativeMocks.openWorkspace.mockImplementation((path: string) => {
+      if (path === "/two") return Promise.resolve(workspace("/two", "Two"));
+      if (nativeMocks.openWorkspace.mock.calls.length === 1) {
+        return Promise.resolve(workspace("/one", "One"));
+      }
+      return pendingRefresh.promise;
+    });
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+
+    let refreshPromise!: Promise<boolean>;
+    act(() => {
+      refreshPromise = result.result.current.refreshCurrentWorkspace();
+    });
+    await waitFor(() => expect(nativeMocks.openWorkspace).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/two");
+    });
+
+    let refreshed = true;
+    await act(async () => {
+      pendingRefresh.resolve(workspace("/one", "Stale One"));
+      refreshed = await refreshPromise;
+    });
+
+    expect(refreshed).toBe(false);
+    expect(result.result.current.state.workspace).toEqual(
+      workspace("/two", "Two"),
+    );
+  });
+
+  it("rejects a refresh response for a different workspace root", async () => {
+    nativeMocks.openWorkspace
+      .mockResolvedValueOnce(workspace("/one", "One"))
+      .mockResolvedValueOnce(workspace("/other", "Other"));
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+
+    let refreshed = true;
+    await act(async () => {
+      refreshed = await result.result.current.refreshCurrentWorkspace();
+    });
+
+    expect(refreshed).toBe(false);
+    expect(result.result.current.state.workspace).toEqual(
+      workspace("/one", "One"),
+    );
+  });
+
+  it("reports a current refresh failure and returns false", async () => {
+    nativeMocks.openWorkspace
+      .mockResolvedValueOnce(workspace("/one", "One"))
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+
+    let refreshed = true;
+    await act(async () => {
+      refreshed = await result.result.current.refreshCurrentWorkspace();
+    });
+
+    expect(refreshed).toBe(false);
+    expect(result.result.current.status).toEqual({
+      message: "refresh failed",
+      tone: "error",
+    });
   });
 
   it("does not recreate a tab when a save finishes after that tab closed", async () => {
@@ -505,5 +671,435 @@ describe("useWorkspaceController workspace isolation", () => {
       "unsaved target draft",
     );
     expect(result.result.current.status.message).toContain("both drafts were kept");
+  });
+});
+
+describe("useWorkspaceController entry lifecycle", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    for (const mock of Object.values(nativeMocks)) mock.mockReset();
+    nativeMocks.openWorkspace.mockResolvedValue(workspace("/one", "One"));
+  });
+
+  it("creates an exact Markdown name, opens it, and returns its path", async () => {
+    const created = {
+      ...noteSnapshot("", "c"),
+      relativePath: "drafts/Read Me.markdown",
+      name: "Read Me.markdown",
+    };
+    nativeMocks.createDocument.mockResolvedValue(created);
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+
+    let creation!: Awaited<
+      ReturnType<typeof result.result.current.createMarkdown>
+    >;
+    await act(async () => {
+      creation = await result.result.current.createMarkdown(
+        "drafts",
+        "Read Me.markdown",
+        "",
+      );
+    });
+
+    expect(nativeMocks.createDocument).toHaveBeenCalledWith(
+      "/one",
+      "drafts/Read Me.markdown",
+      "",
+    );
+    expect(creation).toMatchObject({
+      succeeded: true,
+      applied: true,
+      treeRefreshed: true,
+      snapshot: { relativePath: "drafts/Read Me.markdown" },
+    });
+    expect(result.result.current.state.activeDocumentId).toBe(
+      "drafts/Read Me.markdown",
+    );
+  });
+
+  it("preserves dirty drafts during rename and derives current revisions", async () => {
+    const nested = {
+      ...noteSnapshot("saved", "a"),
+      relativePath: "notes/nested.md",
+      name: "nested.md",
+    };
+    nativeMocks.readDocument.mockResolvedValue(nested);
+    nativeMocks.renameWorkspaceEntry.mockResolvedValue({
+      kind: "directory",
+      sourceRelativePath: "notes",
+      destinationRelativePath: "archive",
+      recoverable: false,
+    });
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+    await act(async () => {
+      await result.result.current.openDocument("notes/nested.md");
+    });
+    act(() => {
+      result.result.current.changeDocument("notes/nested.md", "dirty draft");
+    });
+
+    expect(result.result.current.inspectEntryImpact("notes")).toEqual({
+      affectedDocumentIds: ["notes/nested.md"],
+      affectedDirtyDocumentIds: ["notes/nested.md"],
+    });
+    let mutation!: Awaited<ReturnType<typeof result.result.current.renameEntry>>;
+    await act(async () => {
+      mutation = await result.result.current.renameEntry("notes", "archive");
+    });
+
+    expect(nativeMocks.renameWorkspaceEntry).toHaveBeenCalledWith(
+      "/one",
+      "notes",
+      "archive",
+      [{ relativePath: "notes/nested.md", revision: nested.revision }],
+    );
+    expect(mutation).toMatchObject({
+      succeeded: true,
+      applied: true,
+      affectedDirtyDocumentIds: ["notes/nested.md"],
+      mutation: { destinationRelativePath: "archive" },
+    });
+    expect(result.result.current.state.documents["notes/nested.md"]).toBeUndefined();
+    expect(
+      result.result.current.state.documents["archive/nested.md"],
+    ).toMatchObject({ content: "dirty draft", savedContent: "saved" });
+  });
+
+  it("returns a stable error and leaves state intact when a mutation fails", async () => {
+    const source = noteSnapshot("saved", "a");
+    nativeMocks.readDocument.mockResolvedValue(source);
+    nativeMocks.renameWorkspaceEntry.mockRejectedValue(
+      new Error("rename failed safely"),
+    );
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+    await act(async () => {
+      await result.result.current.openDocument("note.md");
+    });
+
+    let mutation!: Awaited<ReturnType<typeof result.result.current.renameEntry>>;
+    await act(async () => {
+      mutation = await result.result.current.renameEntry("note.md", "next.md");
+    });
+
+    expect(mutation).toMatchObject({
+      succeeded: false,
+      applied: false,
+      treeRefreshed: false,
+      error: "rename failed safely",
+    });
+    expect(result.result.current.state.documents["note.md"]).toBeDefined();
+    expect(result.result.current.status).toEqual({
+      message: "rename failed safely",
+      tone: "error",
+    });
+  });
+
+  it("blocks an open-document destination collision before native rename", async () => {
+    const source = {
+      ...noteSnapshot("source", "a"),
+      relativePath: "notes/note.md",
+      name: "note.md",
+    };
+    const destination = {
+      ...noteSnapshot("protected", "b"),
+      relativePath: "archive/note.md",
+      name: "note.md",
+    };
+    nativeMocks.readDocument
+      .mockResolvedValueOnce(source)
+      .mockResolvedValueOnce(destination);
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+    await act(async () => {
+      await result.result.current.openDocument(source.relativePath);
+    });
+    await act(async () => {
+      await result.result.current.openDocument(destination.relativePath);
+    });
+    act(() =>
+      result.result.current.changeDocument(
+        destination.relativePath,
+        "protected dirty draft",
+      ),
+    );
+
+    let mutation!: Awaited<ReturnType<typeof result.result.current.renameEntry>>;
+    await act(async () => {
+      mutation = await result.result.current.renameEntry("notes", "archive");
+    });
+
+    expect(mutation).toMatchObject({
+      succeeded: false,
+      applied: false,
+      error: "Close the destination tab before replacing that document.",
+    });
+    expect(nativeMocks.renameWorkspaceEntry).not.toHaveBeenCalled();
+    expect(
+      result.result.current.state.documents[destination.relativePath]?.content,
+    ).toBe("protected dirty draft");
+  });
+
+  it("keeps an authoritative mutation successful when its tree refresh fails", async () => {
+    nativeMocks.openWorkspace
+      .mockResolvedValueOnce(workspace("/one", "One"))
+      .mockRejectedValueOnce(new Error("refresh failed after create"));
+    nativeMocks.createWorkspaceDirectory.mockResolvedValue({
+      kind: "directory",
+      destinationRelativePath: "drafts",
+      recoverable: false,
+    });
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+
+    let mutation!: Awaited<
+      ReturnType<typeof result.result.current.createDirectory>
+    >;
+    await act(async () => {
+      mutation = await result.result.current.createDirectory("", "drafts");
+    });
+
+    expect(mutation).toMatchObject({
+      succeeded: true,
+      applied: true,
+      treeRefreshed: false,
+      refreshError: "refresh failed after create",
+      mutation: { destinationRelativePath: "drafts" },
+    });
+    expect(mutation.error).toBeUndefined();
+    expect(result.result.current.status.tone).toBe("success");
+  });
+
+  it("does not apply a completed mutation to a newer workspace generation", async () => {
+    const pendingRename = deferred<{
+      kind: "file";
+      sourceRelativePath: string;
+      destinationRelativePath: string;
+      recoverable: boolean;
+    }>();
+    nativeMocks.openWorkspace.mockImplementation(async (path: string) =>
+      path === "/one"
+        ? workspace("/one", "One")
+        : workspace("/two", "Two"),
+    );
+    nativeMocks.readDocument.mockResolvedValue(noteSnapshot("saved", "a"));
+    nativeMocks.renameWorkspaceEntry.mockReturnValue(pendingRename.promise);
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+    await act(async () => {
+      await result.result.current.openDocument("note.md");
+    });
+
+    let renamePromise!: ReturnType<typeof result.result.current.renameEntry>;
+    act(() => {
+      renamePromise = result.result.current.renameEntry("note.md", "next.md");
+    });
+    await waitFor(() =>
+      expect(nativeMocks.renameWorkspaceEntry).toHaveBeenCalledOnce(),
+    );
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/two");
+    });
+    let mutation!: Awaited<typeof renamePromise>;
+    await act(async () => {
+      pendingRename.resolve({
+        kind: "file",
+        sourceRelativePath: "note.md",
+        destinationRelativePath: "next.md",
+        recoverable: false,
+      });
+      mutation = await renamePromise;
+    });
+
+    expect(mutation).toMatchObject({ succeeded: true, applied: false });
+    expect(result.result.current.state.workspace?.rootPath).toBe("/two");
+    expect(result.result.current.state.documents).toEqual({});
+  });
+
+  it("serializes save before rename and uses the saved revision", async () => {
+    const original = noteSnapshot("original", "a");
+    const saved = noteSnapshot("changed", "b");
+    const pendingSave = deferred<DocumentSnapshot>();
+    nativeMocks.readDocument.mockResolvedValue(original);
+    nativeMocks.writeDocument.mockReturnValue(pendingSave.promise);
+    nativeMocks.renameWorkspaceEntry.mockResolvedValue({
+      kind: "file",
+      sourceRelativePath: "note.md",
+      destinationRelativePath: "renamed.md",
+      recoverable: false,
+    });
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+    await act(async () => {
+      await result.result.current.openDocument("note.md");
+    });
+    act(() => result.result.current.changeDocument("note.md", "changed"));
+
+    let savePromise!: Promise<boolean>;
+    let renamePromise!: ReturnType<typeof result.result.current.renameEntry>;
+    act(() => {
+      savePromise = result.result.current.saveDocument("note.md");
+      renamePromise = result.result.current.renameEntry("note.md", "renamed.md");
+    });
+    await waitFor(() => expect(nativeMocks.writeDocument).toHaveBeenCalledOnce());
+    expect(nativeMocks.renameWorkspaceEntry).not.toHaveBeenCalled();
+    await act(async () => {
+      pendingSave.resolve(saved);
+      expect(await savePromise).toBe(true);
+      await renamePromise;
+    });
+
+    expect(nativeMocks.renameWorkspaceEntry).toHaveBeenCalledWith(
+      "/one",
+      "note.md",
+      "renamed.md",
+      [{ relativePath: "note.md", revision: saved.revision }],
+    );
+    expect(result.result.current.state.documents["renamed.md"]).toBeDefined();
+  });
+
+  it("invalidates an old-path save queued behind a rename", async () => {
+    const pendingRename = deferred<{
+      kind: "file";
+      sourceRelativePath: string;
+      destinationRelativePath: string;
+      recoverable: boolean;
+    }>();
+    nativeMocks.readDocument.mockResolvedValue(noteSnapshot("saved", "a"));
+    nativeMocks.renameWorkspaceEntry.mockReturnValue(pendingRename.promise);
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+    await act(async () => {
+      await result.result.current.openDocument("note.md");
+    });
+    act(() => result.result.current.changeDocument("note.md", "dirty"));
+
+    let renamePromise!: ReturnType<typeof result.result.current.renameEntry>;
+    let savePromise!: Promise<boolean>;
+    act(() => {
+      renamePromise = result.result.current.renameEntry("note.md", "next.md");
+      savePromise = result.result.current.saveDocument("note.md");
+    });
+    await waitFor(() =>
+      expect(nativeMocks.renameWorkspaceEntry).toHaveBeenCalledOnce(),
+    );
+    expect(nativeMocks.writeDocument).not.toHaveBeenCalled();
+    await act(async () => {
+      pendingRename.resolve({
+        kind: "file",
+        sourceRelativePath: "note.md",
+        destinationRelativePath: "next.md",
+        recoverable: false,
+      });
+      await renamePromise;
+      expect(await savePromise).toBe(false);
+    });
+
+    expect(nativeMocks.writeDocument).not.toHaveBeenCalled();
+    expect(result.result.current.state.documents["next.md"]?.content).toBe(
+      "dirty",
+    );
+  });
+
+  it("reports local-history warning status for a successful entry mutation", async () => {
+    nativeMocks.duplicateWorkspaceEntry.mockResolvedValue({
+      kind: "image",
+      sourceRelativePath: "image.png",
+      destinationRelativePath: "image copy.png",
+      recoverable: false,
+      historyWarningCode: "HISTORY_UNAVAILABLE",
+    });
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+
+    let mutation!: Awaited<
+      ReturnType<typeof result.result.current.duplicateEntry>
+    >;
+    await act(async () => {
+      mutation = await result.result.current.duplicateEntry("image.png");
+    });
+
+    expect(mutation.succeeded).toBe(true);
+    expect(result.result.current.status).toEqual({
+      message: "Saved locally · local history unavailable",
+      tone: "neutral",
+    });
+  });
+
+  it("removes trashed dirty documents only after the explicit trash call", async () => {
+    const nested = {
+      ...noteSnapshot("saved", "a"),
+      relativePath: "notes/nested.md",
+      name: "nested.md",
+    };
+    nativeMocks.readDocument.mockResolvedValue(nested);
+    const pendingTrash = deferred<{
+      kind: "directory";
+      sourceRelativePath: string;
+      recoverable: boolean;
+    }>();
+    nativeMocks.trashWorkspaceEntry.mockReturnValue(pendingTrash.promise);
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+    await act(async () => {
+      await result.result.current.openDocument("notes/nested.md");
+    });
+    act(() =>
+      result.result.current.changeDocument("notes/nested.md", "dirty draft"),
+    );
+
+    expect(result.result.current.inspectEntryImpact("notes")).toEqual({
+      affectedDocumentIds: ["notes/nested.md"],
+      affectedDirtyDocumentIds: ["notes/nested.md"],
+    });
+    expect(nativeMocks.trashWorkspaceEntry).not.toHaveBeenCalled();
+    let trashPromise!: ReturnType<typeof result.result.current.trashEntry>;
+    let savePromise!: Promise<boolean>;
+    act(() => {
+      trashPromise = result.result.current.trashEntry("notes");
+      savePromise = result.result.current.saveDocument("notes/nested.md");
+    });
+    await waitFor(() =>
+      expect(nativeMocks.trashWorkspaceEntry).toHaveBeenCalledOnce(),
+    );
+    expect(nativeMocks.writeDocument).not.toHaveBeenCalled();
+    expect(nativeMocks.trashWorkspaceEntry).toHaveBeenCalledWith("/one", "notes", [
+      { relativePath: "notes/nested.md", revision: nested.revision },
+    ]);
+    let mutation!: Awaited<typeof trashPromise>;
+    await act(async () => {
+      pendingTrash.resolve({
+        kind: "directory",
+        sourceRelativePath: "notes",
+        recoverable: true,
+      });
+      mutation = await trashPromise;
+      expect(await savePromise).toBe(false);
+    });
+    expect(mutation.affectedDirtyDocumentIds).toEqual(["notes/nested.md"]);
+    expect(result.result.current.state.documents).toEqual({});
+    expect(nativeMocks.writeDocument).not.toHaveBeenCalled();
   });
 });

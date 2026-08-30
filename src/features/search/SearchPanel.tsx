@@ -1,10 +1,14 @@
 import {
+  useEffect,
   useId,
+  useRef,
+  useState,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { useI18n } from "../../i18n";
+import { isImeKeyEvent } from "../../lib/keyboard";
 
 export interface SearchResultItem {
   relativePath: string;
@@ -20,6 +24,7 @@ export interface SearchPanelProps {
   onSubmit?: (query: string) => void;
   loading?: boolean;
   results?: readonly SearchResultItem[];
+  resultsQuery?: string | null;
   error?: ReactNode;
   searchIcon?: ReactNode;
   clearIcon?: ReactNode;
@@ -41,6 +46,7 @@ export function SearchPanel({
   onSubmit,
   loading = false,
   results = [],
+  resultsQuery,
   error,
   searchIcon = "⌕",
   clearIcon = "×",
@@ -60,7 +66,43 @@ export function SearchPanel({
   const resolvedEmptyState =
     emptyState === undefined ? t("No matches") : emptyState;
   const resultsId = useId();
+  const optionIdPrefix = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [activeIndex, setActiveIndex] = useState(results.length ? 0 : -1);
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const normalizedQuery = query.trim();
+  const resultsAreCurrent =
+    pendingQuery === null &&
+    (resultsQuery === undefined || resultsQuery === normalizedQuery);
+  const visibleResults = resultsAreCurrent && normalizedQuery ? results : [];
+  const searchPending =
+    loading || Boolean(normalizedQuery && !resultsAreCurrent);
+  const selectedIndex = visibleResults.length
+    ? Math.max(0, Math.min(activeIndex, visibleResults.length - 1))
+    : -1;
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (pendingQuery === query) setPendingQuery(null);
+  }, [pendingQuery, query]);
+
+  useEffect(() => {
+    setActiveIndex(visibleResults.length ? 0 : -1);
+    optionRefs.current.length = visibleResults.length;
+  }, [query, results, resultsAreCurrent, visibleResults.length]);
+
+  useEffect(() => {
+    if (selectedIndex < 0) return;
+    optionRefs.current[selectedIndex]?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedIndex]);
+
+  function optionId(index: number): string {
+    return `${optionIdPrefix}-${index}`;
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -68,24 +110,50 @@ export function SearchPanel({
   }
 
   function clearQuery(): void {
+    setPendingQuery("");
     onQueryChange("");
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
-    if (event.key !== "Escape" || !query) return;
-    event.preventDefault();
-    clearQuery();
+    if (isImeKeyEvent(event.nativeEvent)) return;
+
+    if (event.key === "Escape" && query) {
+      event.preventDefault();
+      clearQuery();
+      return;
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!visibleResults.length) return;
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((current) => {
+        if (current < 0 || current >= visibleResults.length) {
+          return direction > 0 ? 0 : visibleResults.length - 1;
+        }
+        return (
+          (current + direction + visibleResults.length) % visibleResults.length
+        );
+      });
+      return;
+    }
+
+    if (event.key === "Enter" && selectedIndex >= 0) {
+      event.preventDefault();
+      const result = visibleResults[selectedIndex];
+      if (result) onOpenResult(result);
+    }
   }
 
   let status: ReactNode;
-  if (loading) status = t("Searching…");
+  if (searchPending) status = t("Searching…");
   else if (error) status = error;
   else if (!normalizedQuery) status = resolvedInitialState;
-  else if (results.length === 0) status = resolvedEmptyState;
+  else if (visibleResults.length === 0) status = resolvedEmptyState;
   else {
     status = fmt(
-      results.length === 1 ? "%d match" : "%d matches",
-      results.length,
+      visibleResults.length === 1 ? "%d match" : "%d matches",
+      visibleResults.length,
     );
   }
 
@@ -94,7 +162,7 @@ export function SearchPanel({
       aria-label={resolvedAriaLabel}
       className={joinClassNames(
         "search-panel",
-        loading && "is-loading",
+        searchPending && "is-loading",
         error !== undefined && "has-error",
         className,
       )}
@@ -105,12 +173,20 @@ export function SearchPanel({
             {searchIcon}
           </span>
           <input
+            aria-activedescendant={
+              selectedIndex >= 0 ? optionId(selectedIndex) : undefined
+            }
+            aria-autocomplete="list"
             aria-controls={resultsId}
             aria-label={resolvedAriaLabel}
             className="search-panel__input"
-            onChange={(event) => onQueryChange(event.currentTarget.value)}
+            onChange={(event) => {
+              setPendingQuery(event.currentTarget.value);
+              onQueryChange(event.currentTarget.value);
+            }}
             onKeyDown={handleKeyDown}
             placeholder={resolvedPlaceholder}
+            ref={inputRef}
             type="search"
             value={query}
           />
@@ -140,17 +216,31 @@ export function SearchPanel({
 
       <ol
         aria-label={t("Search results")}
+        aria-busy={searchPending || undefined}
         className="search-panel__results viva-scroll-region"
         id={resultsId}
+        role="listbox"
       >
-        {results.map((result) => (
+        {visibleResults.map((result, index) => (
           <li
             className="search-panel__result"
             key={`${result.relativePath}:${result.line}:${result.column}`}
+            role="presentation"
           >
             <button
-              className="search-panel__result-target"
+              aria-selected={index === selectedIndex}
+              className={joinClassNames(
+                "search-panel__result-target",
+                index === selectedIndex && "is-active",
+              )}
+              id={optionId(index)}
               onClick={() => onOpenResult(result)}
+              onMouseMove={() => setActiveIndex(index)}
+              ref={(element) => {
+                optionRefs.current[index] = element;
+              }}
+              role="option"
+              tabIndex={-1}
               type="button"
             >
               <span className="search-panel__result-path">

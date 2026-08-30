@@ -74,6 +74,12 @@ export type WorkspaceAction =
       snapshot: DocumentSnapshot;
     }
   | { type: "document/closed"; id: string }
+  | {
+      type: "entry/renamed";
+      sourcePath: string;
+      destinationPath: string;
+    }
+  | { type: "entry/trashed"; path: string }
   | { type: "tree/toggled"; path: string }
   | { type: "activity/selected"; activity: Activity }
   | { type: "sidebar/toggled" }
@@ -82,6 +88,27 @@ export type WorkspaceAction =
 
 function openDocument(snapshot: DocumentSnapshot): OpenDocument {
   return { ...snapshot, savedContent: snapshot.content };
+}
+
+export function isPathWithinEntry(path: string, entryPath: string): boolean {
+  return (
+    entryPath.length > 0 &&
+    (path === entryPath || path.startsWith(`${entryPath}/`))
+  );
+}
+
+export function remapEntryPath(
+  path: string,
+  sourcePath: string,
+  destinationPath: string,
+): string {
+  return isPathWithinEntry(path, sourcePath)
+    ? `${destinationPath}${path.slice(sourcePath.length)}`
+    : path;
+}
+
+function documentName(relativePath: string): string {
+  return relativePath.slice(relativePath.lastIndexOf("/") + 1);
 }
 
 export function workspaceReducer(
@@ -169,6 +196,113 @@ export function workspaceReducer(
           documentOrder[Math.min(index, documentOrder.length - 1)] ?? null;
       }
       return { ...state, documents, documentOrder, activeDocumentId };
+    }
+    case "entry/renamed": {
+      if (
+        action.sourcePath.length === 0 ||
+        action.destinationPath.length === 0 ||
+        action.sourcePath === action.destinationPath
+      ) {
+        return state;
+      }
+      const affectedDocumentIds = Object.keys(state.documents).filter((id) =>
+        isPathWithinEntry(id, action.sourcePath),
+      );
+      const affectedDocumentIdSet = new Set(affectedDocumentIds);
+      const destinationCollides = affectedDocumentIds.some((id) => {
+        const destinationId = remapEntryPath(
+          id,
+          action.sourcePath,
+          action.destinationPath,
+        );
+        return (
+          destinationId !== id &&
+          Boolean(state.documents[destinationId]) &&
+          !affectedDocumentIdSet.has(destinationId)
+        );
+      });
+      if (destinationCollides) return state;
+
+      const documents = { ...state.documents };
+      for (const id of affectedDocumentIds) delete documents[id];
+      for (const id of affectedDocumentIds) {
+        const document = state.documents[id];
+        if (!document) continue;
+        const destinationId = remapEntryPath(
+          id,
+          action.sourcePath,
+          action.destinationPath,
+        );
+        documents[destinationId] = {
+          ...document,
+          relativePath: destinationId,
+          name: documentName(destinationId),
+        };
+      }
+      const expandedPaths = Array.from(
+        new Set(
+          state.expandedPaths.map((path) =>
+            remapEntryPath(
+              path,
+              action.sourcePath,
+              action.destinationPath,
+            ),
+          ),
+        ),
+      );
+      return {
+        ...state,
+        documents,
+        documentOrder: state.documentOrder.map((id) =>
+          remapEntryPath(id, action.sourcePath, action.destinationPath),
+        ),
+        activeDocumentId: state.activeDocumentId
+          ? remapEntryPath(
+              state.activeDocumentId,
+              action.sourcePath,
+              action.destinationPath,
+            )
+          : null,
+        expandedPaths,
+      };
+    }
+    case "entry/trashed": {
+      if (action.path.length === 0) return state;
+      const removedIds = new Set(
+        Object.keys(state.documents).filter((id) =>
+          isPathWithinEntry(id, action.path),
+        ),
+      );
+      const expandedPaths = state.expandedPaths.filter(
+        (path) => !isPathWithinEntry(path, action.path),
+      );
+      if (
+        removedIds.size === 0 &&
+        expandedPaths.length === state.expandedPaths.length
+      ) {
+        return state;
+      }
+      const documents = { ...state.documents };
+      for (const id of removedIds) delete documents[id];
+      const activeIndex = state.activeDocumentId
+        ? state.documentOrder.indexOf(state.activeDocumentId)
+        : -1;
+      const documentOrder = state.documentOrder.filter(
+        (id) => !removedIds.has(id),
+      );
+      const activeDocumentId =
+        state.activeDocumentId && removedIds.has(state.activeDocumentId)
+          ? (documentOrder[
+              Math.min(Math.max(activeIndex, 0), documentOrder.length - 1)
+            ] ?? null)
+          : state.activeDocumentId;
+      return {
+        ...state,
+        documents,
+        documentOrder,
+        activeDocumentId,
+        expandedPaths,
+      };
     }
     case "tree/toggled": {
       const expanded = state.expandedPaths.includes(action.path);

@@ -115,7 +115,7 @@
 }
 
 .viva-button.is-loading .viva-button__content {
-  visibility: hidden;
+  opacity: 0;
 }
 
 .viva-button__spinner {

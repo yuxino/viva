@@ -1,5 +1,6 @@
 import {
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   type KeyboardEvent,
@@ -257,6 +258,15 @@ export function HistoryLineDiff({
       : emptyState;
   const hasChanges =
     result.summary.additions > 0 || result.summary.removals > 0;
+  const linesRef = useRef<HTMLOListElement>(null);
+
+  useLayoutEffect(() => {
+    if (!hasChanges) return;
+    const firstChange = linesRef.current?.querySelector<HTMLElement>(
+      ".history-diff__line--added, .history-diff__line--removed",
+    );
+    firstChange?.scrollIntoView?.({ block: "center", inline: "nearest" });
+  }, [hasChanges, result]);
 
   return (
     <section
@@ -295,6 +305,7 @@ export function HistoryLineDiff({
       {hasChanges ? (
         <ol
           className="history-diff__lines viva-scroll-region"
+          ref={linesRef}
           tabIndex={0}
         >
           {result.rows.map((row, index) => (

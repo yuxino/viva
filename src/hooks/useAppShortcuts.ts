@@ -1,10 +1,14 @@
 import { useEffect } from "react";
-import { hasPrimaryShortcutModifier } from "../lib/keyboard";
+import {
+  getVivaPlatform,
+  hasPrimaryShortcutModifier,
+} from "../lib/keyboard";
 
 export interface AppShortcutHandlers {
   closeTab: () => void;
   commandPalette: () => void;
   editView: () => void;
+  find: () => void;
   focusMode: () => void;
   liveView: () => void;
   newDocument: () => void;
@@ -12,6 +16,7 @@ export interface AppShortcutHandlers {
   openFolder: () => void;
   previewView: () => void;
   quickOpen: () => void;
+  replace: () => void;
   save: () => void;
   saveAs: () => void;
   splitView: () => void;
@@ -22,15 +27,23 @@ export function useAppShortcuts(handlers: AppShortcutHandlers): void {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const command = hasPrimaryShortcutModifier(event);
-      if (!command || event.altKey) return;
+      if (!command) return;
       const key = event.key.toLocaleLowerCase();
+      const macos = getVivaPlatform() === "macos";
+      const replaceShortcut =
+        !event.shiftKey &&
+        ((macos && event.altKey && key === "f") ||
+          (!macos && !event.altKey && key === "h"));
+      if (event.altKey && !replaceShortcut) return;
 
       const run = (handler: () => void) => {
         event.preventDefault();
         handler();
       };
 
-      if (key === "o" && !event.shiftKey) run(handlers.openFolder);
+      if (replaceShortcut) run(handlers.replace);
+      else if (key === "f" && !event.shiftKey) run(handlers.find);
+      else if (key === "o" && !event.shiftKey) run(handlers.openFolder);
       else if (key === "n" && event.shiftKey) run(handlers.newWindow);
       else if (key === "n") run(handlers.newDocument);
       else if (key === "s" && event.shiftKey) run(handlers.saveAs);

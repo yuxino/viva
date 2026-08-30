@@ -18,6 +18,7 @@ import {
 import {
   resolveLocalImagePath,
   workspaceImageCache,
+  type RenderedWorkspaceImageReference,
   type WorkspaceImageCacheLike,
   type WorkspaceImageLease,
 } from "../../lib/media";
@@ -32,6 +33,7 @@ export interface PreviewPaneProps {
   workspaceRoot?: string | null;
   documentPath?: string | null;
   imageCache?: WorkspaceImageCacheLike;
+  imageCacheRevision?: number;
   format?: "markdown" | "mdx";
   ariaLabel?: string;
   className?: string;
@@ -86,6 +88,7 @@ export function PreviewPane({
   workspaceRoot = null,
   documentPath = null,
   imageCache = workspaceImageCache,
+  imageCacheRevision = 0,
   format = "markdown",
   ariaLabel,
   className,
@@ -98,18 +101,27 @@ export function PreviewPane({
     () => providedRendered ?? renderMarkdown(source, { format }),
     [format, providedRendered, source],
   );
+  const renderedMarkup = useMemo(
+    () => ({ __html: rendered.html }),
+    [rendered.html],
+  );
   const scrollerRef = useRef<HTMLDivElement>(null);
   const articleRef = useRef<HTMLElement>(null);
+  const imageReferencesRef = useRef(
+    new WeakMap<HTMLElement, RenderedWorkspaceImageReference>(),
+  );
   const suppressScrollRef = useRef(false);
 
   useEffect(() => {
     const article = articleRef.current;
     if (!article) return;
 
-    const references = new Map(
-      (rendered.images ?? []).map((reference) => [reference.id, reference]),
-    );
     const leases = new Set<WorkspaceImageLease>();
+    const imageReferences = new WeakMap<
+      HTMLElement,
+      RenderedWorkspaceImageReference
+    >();
+    imageReferencesRef.current = imageReferences;
     let disposed = false;
 
     function showPlaceholder(element: HTMLElement, label: string): void {
@@ -138,7 +150,7 @@ export function PreviewPane({
 
     async function loadImage(
       element: HTMLElement,
-      reference: NonNullable<RenderedMarkdown["images"]>[number],
+      reference: RenderedWorkspaceImageReference,
     ): Promise<void> {
       const imageAlt = reference.alt || t("Image");
       if (!workspaceRoot || !documentPath) {
@@ -164,7 +176,6 @@ export function PreviewPane({
         image.className = "markdown-local-image";
         image.decoding = "async";
         image.draggable = false;
-        image.loading = "lazy";
         if (reference.title) image.title = reference.title;
         image.addEventListener(
           "error",
@@ -181,7 +192,6 @@ export function PreviewPane({
         image.src = lease.url;
         element.classList.remove("is-loading", "is-unavailable");
         element.classList.add("is-loaded");
-        element.dataset.imagePath = relativePath;
         element.setAttribute(
           "aria-label",
           onImageRequest
@@ -207,11 +217,16 @@ export function PreviewPane({
 
     const pending: Array<{
       element: HTMLElement;
-      reference: NonNullable<RenderedMarkdown["images"]>[number];
+      reference: RenderedWorkspaceImageReference;
     }> = [];
-    for (const element of article.querySelectorAll<HTMLElement>("[data-viva-image]")) {
-      const reference = references.get(element.dataset.vivaImage ?? "");
+    const references = rendered.images ?? [];
+    const elements = article.querySelectorAll<HTMLElement>(
+      ".markdown-image-placeholder",
+    );
+    for (const [index, element] of Array.from(elements).entries()) {
+      const reference = references[index];
       if (!reference) continue;
+      imageReferences.set(element, reference);
       const imageAlt = reference.alt || t("Image");
       if (reference.remote) {
         showPlaceholder(element, fmt("Remote image blocked · %@", imageAlt));
@@ -250,11 +265,15 @@ export function PreviewPane({
       observer?.disconnect();
       for (const lease of leases) lease.release();
       leases.clear();
+      if (imageReferencesRef.current === imageReferences) {
+        imageReferencesRef.current = new WeakMap();
+      }
     };
   }, [
     documentPath,
     fmt,
     imageCache,
+    imageCacheRevision,
     onImageRequest,
     rendered.html,
     rendered.images,
@@ -281,13 +300,14 @@ export function PreviewPane({
 
   function handleClick(event: MouseEvent<HTMLDivElement>): void {
     const target = event.target instanceof Element ? event.target : null;
-    const image = target?.closest<HTMLElement>("[data-viva-image].is-loaded");
+    const image = target?.closest<HTMLElement>(
+      ".markdown-image-placeholder.is-loaded",
+    );
     if (image && onImageRequest) {
+      const reference = imageReferencesRef.current.get(image);
+      if (!reference) return;
       event.preventDefault();
-      onImageRequest(
-        image.dataset.imageSrc ?? "",
-        image.dataset.imageAlt || t("Image"),
-      );
+      onImageRequest(reference.source, reference.alt || t("Image"));
       return;
     }
     const anchor = target?.closest<HTMLAnchorElement>("a[href]");
@@ -322,13 +342,14 @@ export function PreviewPane({
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     if (event.key !== "Enter" && event.key !== " ") return;
     const target = event.target instanceof Element ? event.target : null;
-    const image = target?.closest<HTMLElement>("[data-viva-image].is-loaded");
-    if (!image || !onImageRequest) return;
-    event.preventDefault();
-    onImageRequest(
-      image.dataset.imageSrc ?? "",
-      image.dataset.imageAlt || t("Image"),
+    const image = target?.closest<HTMLElement>(
+      ".markdown-image-placeholder.is-loaded",
     );
+    if (!image || !onImageRequest) return;
+    const reference = imageReferencesRef.current.get(image);
+    if (!reference) return;
+    event.preventDefault();
+    onImageRequest(reference.source, reference.alt || t("Image"));
   }
 
   function handleScroll(event: UIEvent<HTMLDivElement>): void {
@@ -393,7 +414,7 @@ export function PreviewPane({
         {source.trim() ? (
           <article
             className="preview-pane__document markdown-body"
-            dangerouslySetInnerHTML={{ __html: rendered.html }}
+            dangerouslySetInnerHTML={renderedMarkup}
             ref={articleRef}
           />
         ) : (

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  readRenderedWorkspaceImageReference,
   resolveLocalImagePath,
   WorkspaceImageCache,
   type WorkspaceImageLease,
@@ -48,6 +49,25 @@ describe("resolveLocalImagePath", () => {
     ]) {
       expect(resolveLocalImagePath("notes/day.md", source), source).toBeNull();
     }
+  });
+});
+
+describe("readRenderedWorkspaceImageReference", () => {
+  it("reads sanitized placeholder metadata without relying on a renderer-side id", () => {
+    const element = document.createElement("span");
+    element.dataset.imageSrc = "assets/viva-round.webp";
+    element.dataset.imageAlt = "Viva round character";
+    element.dataset.imageTitle = "Round";
+
+    expect(readRenderedWorkspaceImageReference(element)).toEqual({
+      alt: "Viva round character",
+      remote: false,
+      source: "assets/viva-round.webp",
+      title: "Round",
+    });
+
+    element.dataset.imageSrc = "data:image/webp;base64,AA==";
+    expect(readRenderedWorkspaceImageReference(element)?.remote).toBe(true);
   });
 });
 
@@ -106,6 +126,29 @@ describe("WorkspaceImageCache", () => {
       url: "blob:valid",
     });
     expect(invokeBinary).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the same path again after its workspace cache is cleared", async () => {
+    const invokeBinary = vi.fn().mockResolvedValue(payload([1, 2, 3]));
+    const createObjectURL = vi
+      .fn()
+      .mockReturnValueOnce("blob:first")
+      .mockReturnValueOnce("blob:second");
+    const cache = new WorkspaceImageCache({
+      createObjectURL,
+      invokeBinary,
+      revokeObjectURL: vi.fn(),
+    });
+
+    const first = await cache.acquire("/workspace", "image.png");
+    first.release();
+    cache.clear("/workspace");
+    const second = await cache.acquire("/workspace", "image.png");
+
+    expect(invokeBinary).toHaveBeenCalledTimes(2);
+    expect(first.url).toBe("blob:first");
+    expect(second.url).toBe("blob:second");
+    second.release();
   });
 
   it("maps a validated GIF payload to a GIF Blob", async () => {

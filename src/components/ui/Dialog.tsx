@@ -47,6 +47,21 @@ export function Dialog({
   const titleId = useId();
   const descriptionId = useId();
 
+  function restorePreviousFocus(dialog: HTMLDialogElement): void {
+    const active = document.activeElement;
+    if (
+      active &&
+      active !== document.body &&
+      active !== dialog &&
+      !dialog.contains(active)
+    ) {
+      previousFocusRef.current = null;
+      return;
+    }
+    previousFocusRef.current?.focus();
+    previousFocusRef.current = null;
+  }
+
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -65,14 +80,14 @@ export function Dialog({
       } else {
         dialog.removeAttribute("open");
       }
-      previousFocusRef.current?.focus();
-      previousFocusRef.current = null;
+      restorePreviousFocus(dialog);
     }
   }, [initialFocusRef, open]);
 
   useEffect(
     () => () => {
-      previousFocusRef.current?.focus();
+      const dialog = dialogRef.current;
+      if (dialog) restorePreviousFocus(dialog);
     },
     [],
   );

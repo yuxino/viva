@@ -156,6 +156,148 @@ describe("workspaceReducer", () => {
       "unsaved destination draft",
     );
   });
+
+  it("remaps an entry and its open dirty drafts with path-segment boundaries", () => {
+    const nested = {
+      ...first,
+      relativePath: "notes/drafts/one.md",
+      name: "one.md",
+    };
+    const similarlyNamed = {
+      ...second,
+      relativePath: "notes-old/two.md",
+      name: "two.md",
+    };
+    let state = workspaceReducer(initialWorkspaceState, {
+      type: "document/opened",
+      snapshot: nested,
+    });
+    state = workspaceReducer(state, {
+      type: "document/changed",
+      id: nested.relativePath,
+      content: "unsaved nested draft",
+    });
+    state = workspaceReducer(state, {
+      type: "document/opened",
+      snapshot: similarlyNamed,
+    });
+    state = {
+      ...state,
+      expandedPaths: ["notes", "notes/drafts", "notes-old"],
+    };
+
+    const renamed = workspaceReducer(state, {
+      type: "entry/renamed",
+      sourcePath: "notes",
+      destinationPath: "archive",
+    });
+
+    expect(renamed.documentOrder).toEqual([
+      "archive/drafts/one.md",
+      "notes-old/two.md",
+    ]);
+    expect(renamed.activeDocumentId).toBe("notes-old/two.md");
+    expect(renamed.documents["archive/drafts/one.md"]).toMatchObject({
+      content: "unsaved nested draft",
+      savedContent: "one",
+      relativePath: "archive/drafts/one.md",
+      name: "one.md",
+    });
+    expect(renamed.documents["notes-old/two.md"]).toBe(
+      state.documents["notes-old/two.md"],
+    );
+    expect(renamed.expandedPaths).toEqual([
+      "archive",
+      "archive/drafts",
+      "notes-old",
+    ]);
+  });
+
+  it("keeps every draft unchanged when an entry rename destination collides", () => {
+    const source = {
+      ...first,
+      relativePath: "notes/one.md",
+      name: "one.md",
+    };
+    const destination = {
+      ...second,
+      relativePath: "archive/one.md",
+      name: "one.md",
+    };
+    let state = workspaceReducer(initialWorkspaceState, {
+      type: "document/opened",
+      snapshot: source,
+    });
+    state = workspaceReducer(state, {
+      type: "document/opened",
+      snapshot: destination,
+    });
+    state = workspaceReducer(state, {
+      type: "document/changed",
+      id: destination.relativePath,
+      content: "protected destination draft",
+    });
+
+    const protectedState = workspaceReducer(state, {
+      type: "entry/renamed",
+      sourcePath: "notes",
+      destinationPath: "archive",
+    });
+
+    expect(protectedState).toBe(state);
+    expect(protectedState.documents["archive/one.md"]?.content).toBe(
+      "protected destination draft",
+    );
+  });
+
+  it("removes trashed descendants and selects the adjacent surviving tab", () => {
+    const before = {
+      ...first,
+      relativePath: "before.md",
+      name: "before.md",
+    };
+    const nested = {
+      ...second,
+      relativePath: "notes/two.md",
+      name: "two.md",
+    };
+    const similarlyNamed = {
+      ...first,
+      relativePath: "notes-old/one.md",
+      name: "one.md",
+    };
+    let state = workspaceReducer(initialWorkspaceState, {
+      type: "document/opened",
+      snapshot: before,
+    });
+    state = workspaceReducer(state, {
+      type: "document/opened",
+      snapshot: nested,
+    });
+    state = workspaceReducer(state, {
+      type: "document/opened",
+      snapshot: similarlyNamed,
+    });
+    state = workspaceReducer(state, {
+      type: "document/activated",
+      id: nested.relativePath,
+    });
+    state = {
+      ...state,
+      expandedPaths: ["notes", "notes/subfolder", "notes-old"],
+    };
+
+    const trashed = workspaceReducer(state, {
+      type: "entry/trashed",
+      path: "notes",
+    });
+
+    expect(trashed.documentOrder).toEqual(["before.md", "notes-old/one.md"]);
+    expect(trashed.activeDocumentId).toBe("notes-old/one.md");
+    expect(trashed.documents["notes/two.md"]).toBeUndefined();
+    expect(trashed.documents["notes-old/one.md"]).toBeDefined();
+    expect(trashed.expandedPaths).toEqual(["notes-old"]);
+  });
 });
 
 describe("flattenFiles", () => {

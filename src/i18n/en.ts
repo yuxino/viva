@@ -15,6 +15,7 @@ const en = {
   "Background status": "Background status",
   blank: "blank",
   Blur: "Blur",
+  Bold: "Bold",
   Bottom: "Bottom",
   "Bottom left": "Bottom left",
   "Bottom right": "Bottom right",
@@ -44,6 +45,7 @@ const en = {
   "Document outline": "Document outline",
   "Document status": "Document status",
   "Don’t save": "Don’t save",
+  Duplicate: "Duplicate",
   "Empty document": "Empty document",
   "Edit block": "Edit block",
   "File menu": "File menu",
@@ -56,6 +58,9 @@ const en = {
   "History unavailable": "History unavailable",
   "Historical → current": "Historical → current",
   Image: "Image",
+  "Pasted image": "Pasted image",
+  "Inline Code": "Inline Code",
+  Italic: "Italic",
   "JPEG, PNG, or WebP · up to 24 MiB": "JPEG, PNG, or WebP · up to 24 MiB",
   "Keep one image privately on this device.":
     "Keep one image privately on this device.",
@@ -166,6 +171,7 @@ const en = {
   "Window controls": "Window controls",
   "Window title": "Window title",
   "Workspace files": "Workspace files",
+  "Workspace menu": "Workspace menu",
   "Workspace sidebar": "Workspace sidebar",
   "Workspace views": "Workspace views",
   "Your changes have not been written to disk.":
@@ -355,6 +361,57 @@ const en = {
     "Viva could not access background storage.",
   "Viva could not prepare the selected image.":
     "Viva could not prepare the selected image.",
+  "Close find and replace": "Close find and replace",
+  "Find and replace": "Find and replace",
+  "Find in document": "Find in document",
+  "Hide replace": "Hide replace",
+  "Match case": "Match case",
+  "Next match": "Next match",
+  "Previous match": "Previous match",
+  Replace: "Replace",
+  "Replace all": "Replace all",
+  "Replace with": "Replace with",
+  "Show replace": "Show replace",
+  "Whole word": "Whole word",
+  "Create File": "Create File",
+  "Create Folder": "Create Folder",
+  "Could not create this file.": "Could not create this file.",
+  "Could not create this folder.": "Could not create this folder.",
+  "Could not create this copy.": "Could not create this copy.",
+  "Could not finish the pending image paste.":
+    "Could not finish the pending image paste.",
+  "Could not rename this item.": "Could not rename this item.",
+  "Could not save the latest edits. No copy was created.":
+    "Could not save the latest edits. No copy was created.",
+  "Could not save the latest edits. Nothing was moved to Trash.":
+    "Could not save the latest edits. Nothing was moved to Trash.",
+  "Could not move this item to Trash.": "Could not move this item to Trash.",
+  "File name": "File name",
+  "Folder name": "Folder name",
+  "Move “%@” to Trash?": "Move “%@” to Trash?",
+  "Move to Trash": "Move to Trash",
+  Name: "Name",
+  "New Folder": "New Folder",
+  "New Markdown File": "New Markdown File",
+  Rename: "Rename",
+  "Rename “%@”": "Rename “%@”",
+  "Save & Duplicate": "Save & Duplicate",
+  "Save & Move to Trash": "Save & Move to Trash",
+  "Save “%@” before duplicating?": "Save “%@” before duplicating?",
+  "This item will be moved to the system Trash. You can recover it there.":
+    "This item will be moved to the system Trash. You can recover it there.",
+  "The file change succeeded, but the sidebar could not refresh: %@":
+    "The file change succeeded, but the sidebar could not refresh: %@",
+  "Unknown error": "Unknown error",
+  "Unsaved changes will be saved before this item is moved.":
+    "Unsaved changes will be saved before this item is moved.",
+  "Untitled Folder": "Untitled Folder",
+  "Your latest edits must be saved before Viva can create the copy.":
+    "Your latest edits must be saved before Viva can create the copy.",
+  "%d open document will close after this item is moved.":
+    "%d open document will close after this item is moved.",
+  "%d open documents will close after this item is moved.":
+    "%d open documents will close after this item is moved.",
 } as const;
 
 export default en;

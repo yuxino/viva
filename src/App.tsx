@@ -36,12 +36,16 @@ import {
   EmptyState,
   IconButton,
   SegmentedControl,
+  type CommandPaletteDataItem,
   type CommandPaletteItem,
 } from "./components/ui";
 import {
   flattenFiles,
   flattenImages,
+  isPathWithinEntry,
   isDocumentDirty,
+  remapEntryPath,
+  type FileKind,
   type FileTreeNode,
   type ViewMode,
 } from "./domain/workspace";
@@ -50,11 +54,15 @@ import {
   AppearancePanel,
   BackgroundLayer,
   DocumentTabs,
+  DuplicateEntryDialog,
   EditorPane,
+  EntryNameDialog,
   FileTree,
+  FindBar,
   HistoryPanel,
   ImageViewer,
   LiveEditorPane,
+  MoveToTrashDialog,
   OutlinePanel,
   PreviewPane,
   SearchPanel,
@@ -62,9 +70,25 @@ import {
   StatusBar,
   TitleBar,
   useBackgroundSettings,
+  countLiteralMatches,
+  createImagePasteId,
+  hasImagePasteToken,
+  findLiteralMatchAt,
+  findLiteralMatchIndexAtOrAfter,
+  findLiteralMatchIndexAtOffset,
+  insertImagePasteToken,
   offsetAtPosition,
   positionAtOffset,
+  removeImagePasteToken,
+  replaceAllLiteralMatches,
+  replaceOneMatch,
+  resolveImagePasteToken,
+  stepMatchIndex,
+  wrapMatchIndex,
   type EditorPosition,
+  type EntryNameDialogMode,
+  type FileTreeFocusRequest,
+  type FindBarFocusTarget,
   type ImageViewerSource,
   type TextSelection,
 } from "./features";
@@ -83,8 +107,12 @@ import {
 } from "./i18n";
 import { getAppShortcutLabels, getVivaPlatform } from "./lib/keyboard";
 import { countWords, renderMarkdown } from "./lib/markdown";
-import { resolveLocalImagePath } from "./lib/media";
+import { resolveLocalImagePath, workspaceImageCache } from "./lib/media";
 import {
+  assertWorkspaceImageSize,
+  cancelWorkspaceImage,
+  commitWorkspaceImage,
+  createWorkspaceImage,
   hasNativeShell,
   openExternalUrl,
   openNewWindow,
@@ -92,8 +120,11 @@ import {
   setNativeMenuLanguage,
 } from "./lib/native";
 import { boundTextPrefix } from "./lib/textBounds";
+import FindScanWorker from "./features/find/find.worker?worker";
+import type { FindWorkerResponse } from "./features/find/findWorkerProtocol";
 
 type PaletteMode = "files" | "commands" | null;
+type FindMode = "find" | "replace" | null;
 type ThemePreference = "system" | "light" | "dark";
 type WorkbenchSurface = "document" | "history" | "appearance";
 
@@ -109,6 +140,32 @@ interface PendingHistoryLoad {
   versionLabel: string;
 }
 
+interface EntryNameRequest {
+  entryKind: "file" | "folder";
+  initialValue: string;
+  mode: EntryNameDialogMode;
+  parentPath: string;
+  relativePath?: string;
+  workspaceRoot: string;
+}
+
+interface PendingEntryOperation {
+  affectedDocumentIds: string[];
+  affectedDirtyDocumentIds: string[];
+  kind: FileKind;
+  name: string;
+  relativePath: string;
+  workspaceRoot: string;
+}
+
+interface PendingImagePasteOperation {
+  cancel: () => Promise<void>;
+  cancelled: boolean;
+  promise: Promise<void>;
+  referenced: boolean;
+  token: string;
+}
+
 interface ScrollSync {
   line: number;
   target: "editor" | "preview" | "both";
@@ -118,6 +175,17 @@ interface SearchNavigationTarget {
   column: number;
   line: number;
   relativePath: string;
+}
+
+interface FindScanState {
+  activeIndex: number;
+  caseSensitive: boolean;
+  content: string | null;
+  count: number;
+  documentId: string | null;
+  match?: { end: number; start: number };
+  query: string;
+  wholeWord: boolean;
 }
 
 const SIDEBAR_DEFAULT = 236;
@@ -134,6 +202,17 @@ const LIVE_MARKDOWN_MAX_CHARACTERS = 512 * 1024;
 const LIVE_MARKDOWN_MAX_LINES = 5_000;
 const LIVE_STATS_MAX_CHARACTERS = 512 * 1024;
 const EMPTY_RENDERED_MARKDOWN = { html: "", outline: [] };
+
+function imagePasteOperationKey(
+  workspaceRoot: string,
+  relativePath: string,
+): string {
+  return `${workspaceRoot}\u0000${relativePath}`;
+}
+
+function waitForStateCommit(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
@@ -219,6 +298,80 @@ function resolveMarkdownLink(currentPath: string, href: string): string | null {
   return /\.(?:md|markdown|mdx|txt)$/i.test(result) ? result : null;
 }
 
+function findWorkspaceEntry(
+  nodes: readonly FileTreeNode[],
+  relativePath: string,
+): FileTreeNode | null {
+  for (const node of nodes) {
+    if (node.relativePath === relativePath) return node;
+    if (node.kind === "directory") {
+      const nested = findWorkspaceEntry(node.children, relativePath);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+function parentPath(relativePath: string): string {
+  const separator = relativePath.lastIndexOf("/");
+  return separator < 0 ? "" : relativePath.slice(0, separator);
+}
+
+function markdownTitle(fileName: string): string {
+  const dot = fileName.lastIndexOf(".");
+  const title = (dot > 0 ? fileName.slice(0, dot) : fileName).trim();
+  return title || "Untitled";
+}
+
+function remapPathMap<T>(
+  source: ReadonlyMap<string, T>,
+  sourcePath: string,
+  destinationPath: string,
+): Map<string, T> {
+  const remapped = new Map<string, T>();
+  for (const [path, value] of source) {
+    remapped.set(
+      isPathWithinEntry(path, sourcePath)
+        ? remapEntryPath(path, sourcePath, destinationPath)
+        : path,
+      value,
+    );
+  }
+  return remapped;
+}
+
+function visibleWorkspacePaths(
+  nodes: readonly FileTreeNode[],
+  expandedPaths: ReadonlySet<string>,
+): string[] {
+  const paths: string[] = [];
+  for (const node of nodes) {
+    paths.push(node.relativePath);
+    if (node.kind === "directory" && expandedPaths.has(node.relativePath)) {
+      paths.push(...visibleWorkspacePaths(node.children, expandedPaths));
+    }
+  }
+  return paths;
+}
+
+function focusPathAfterRemoval(
+  nodes: readonly FileTreeNode[],
+  expandedPaths: readonly string[],
+  removedPath: string,
+): string {
+  const visible = visibleWorkspacePaths(nodes, new Set(expandedPaths));
+  const removedIndex = visible.indexOf(removedPath);
+  const survivors = visible.filter(
+    (path) => !isPathWithinEntry(path, removedPath),
+  );
+  if (!survivors.length) return "";
+  if (removedIndex < 0) return survivors[0] ?? "";
+  const preceding = visible
+    .slice(0, removedIndex)
+    .filter((path) => !isPathWithinEntry(path, removedPath)).length;
+  return survivors[Math.min(preceding, survivors.length - 1)] ?? "";
+}
+
 function viewOptions(t: (key: TranslationKey) => string) {
   return [
     { value: "live" as const, label: t("Live"), icon: <LiveIcon size={16} /> },
@@ -252,12 +405,47 @@ export function App() {
   const [theme, setTheme] = useState<ThemePreference>(loadTheme);
   const [imageViewerSource, setImageViewerSource] =
     useState<ImageViewerSource | null>(null);
+  const [imageCacheRevision, setImageCacheRevision] = useState(0);
   const [workbenchSurface, setWorkbenchSurface] =
     useState<WorkbenchSurface>("document");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchResultsQuery, setSearchResultsQuery] = useState<string | null>(
+    null,
+  );
+  const [findMode, setFindMode] = useState<FindMode>(null);
+  const [findQuery, setFindQuery] = useState("");
+  const [findReplacement, setFindReplacement] = useState("");
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false);
+  const [findWholeWord, setFindWholeWord] = useState(false);
+  const [findActiveIndex, setFindActiveIndex] = useState(-1);
+  const [findFocusTarget, setFindFocusTarget] =
+    useState<FindBarFocusTarget>("query");
+  const [findFocusEpoch, setFindFocusEpoch] = useState(0);
+  const [findRevealRequestId, setFindRevealRequestId] = useState(0);
+  const [findScan, setFindScan] = useState<FindScanState>({
+    activeIndex: -1,
+    caseSensitive: false,
+    content: null,
+    count: 0,
+    documentId: null,
+    query: "",
+    wholeWord: false,
+  });
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
   const [pendingHistoryLoad, setPendingHistoryLoad] =
     useState<PendingHistoryLoad | null>(null);
+  const [entryNameRequest, setEntryNameRequest] =
+    useState<EntryNameRequest | null>(null);
+  const [entryNameError, setEntryNameError] = useState<string | null>(null);
+  const [pendingDuplicate, setPendingDuplicate] =
+    useState<PendingEntryOperation | null>(null);
+  const [pendingTrash, setPendingTrash] =
+    useState<PendingEntryOperation | null>(null);
+  const [entryOperationBusy, setEntryOperationBusy] = useState(false);
+  const [entryOperationError, setEntryOperationError] =
+    useState<string | null>(null);
+  const [fileTreeFocusRequest, setFileTreeFocusRequest] =
+    useState<FileTreeFocusRequest | null>(null);
   const [dialogSaving, setDialogSaving] = useState(false);
   const [cursor, setCursor] = useState<EditorPosition>({ line: 1, column: 1 });
   const [scrollSync, setScrollSync] = useState<ScrollSync>({
@@ -274,9 +462,25 @@ export function App() {
   );
   const selectionsRef = useRef(new Map<string, Required<TextSelection>>());
   const pendingSearchNavigationRef = useRef<SearchNavigationTarget | null>(null);
+  const searchGenerationRef = useRef(0);
+  const searchQueryRef = useRef(searchQuery);
   const newWindowInFlightRef = useRef<Promise<void> | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const editorStageRef = useRef<HTMLDivElement>(null);
+  const liveDocumentContentRef = useRef(new Map<string, string>());
+  const pendingImagePastesRef = useRef(
+    new Map<string, Set<PendingImagePasteOperation>>(),
+  );
+  const fileTreeFocusIdRef = useRef(0);
+  const findReturnFocusRef = useRef<HTMLElement | null>(null);
+  const findActiveIndexRef = useRef(findActiveIndex);
+  const findSelectionOffsetRef = useRef<number | null>(null);
+  const findWorkerGenerationRef = useRef(0);
+  const findWorkerRequestRef = useRef(0);
+  const findWorkerRef = useRef<Worker | null>(null);
+  const controllerRef = useRef(controller);
+  const workspaceStateRef = useRef(state);
+  const workspaceRootRef = useRef(state.workspace?.rootPath ?? null);
   const background = useBackgroundSettings();
   const historyScope = useMemo(
     () =>
@@ -289,6 +493,16 @@ export function App() {
     [currentDocument?.relativePath, state.workspace?.rootPath],
   );
   const history = useDocumentHistory(historyScope);
+  controllerRef.current = controller;
+  workspaceStateRef.current = state;
+  workspaceRootRef.current = state.workspace?.rootPath ?? null;
+  findActiveIndexRef.current = findActiveIndex;
+  liveDocumentContentRef.current = new Map(
+    Object.entries(state.documents).map(([id, document]) => [
+      id,
+      document.content,
+    ]),
+  );
   const activeContent = useMemo(
     () => ({
       relativePath: currentDocument?.relativePath ?? "",
@@ -359,6 +573,18 @@ export function App() {
       ),
     [currentDocument?.content],
   );
+  const findScanIsCurrent = Boolean(
+    findMode !== null &&
+      currentDocument &&
+      findScan.documentId === currentDocument.relativePath &&
+      findScan.content === currentDocument.content &&
+      findScan.query === findQuery &&
+      findScan.caseSensitive === findCaseSensitive &&
+      findScan.wholeWord === findWholeWord,
+  );
+  const findMatchCount = findScanIsCurrent ? findScan.count : 0;
+  const resolvedFindIndex = findScanIsCurrent ? findScan.activeIndex : -1;
+  const activeFindMatch = findScanIsCurrent ? findScan.match : undefined;
   const tabs = useMemo(
     () =>
       state.documentOrder.flatMap((id) => {
@@ -412,6 +638,38 @@ export function App() {
     },
     [state.workspace?.rootPath],
   );
+  const quickOpenPaletteItems = useMemo<CommandPaletteDataItem[]>(
+    () =>
+      workspaceQuickEntries.map((entry) => ({
+        detail: entry.relativePath,
+        id: `${entry.kind}:${entry.relativePath}`,
+        label: entry.name,
+        searchText: entry.relativePath,
+        section: t("Files"),
+        value: entry.relativePath,
+      })),
+    [t, workspaceQuickEntries],
+  );
+  const handleQuickOpenSelect = useCallback(
+    (item: CommandPaletteDataItem) => {
+      if (!item.value) return;
+      if (item.id.startsWith("image:")) {
+        openWorkspaceImage(item.value, item.label);
+      } else {
+        void controller.openDocument(item.value);
+      }
+    },
+    [controller.openDocument, openWorkspaceImage],
+  );
+  const renderQuickOpenIcon = useCallback(
+    (item: CommandPaletteDataItem) =>
+      item.id.startsWith("image:") ? (
+        <ImageIcon size={16} />
+      ) : (
+        <FileMarkdownIcon size={16} />
+      ),
+    [],
+  );
   const handleImageRequest = useCallback(
     (source: string, alt: string) => {
       if (!currentDocument) return;
@@ -429,12 +687,825 @@ export function App() {
     },
     [controller.reportError, currentDocument, openWorkspaceImage, t],
   );
+  const changeDocumentContent = useCallback(
+    (id: string, content: string) => {
+      liveDocumentContentRef.current.set(id, content);
+      controller.changeDocument(id, content);
+    },
+    [controller.changeDocument],
+  );
+
+  const imagePasteContextIsLive = useCallback(
+    (workspaceRoot: string, relativePath: string, token: string) => {
+      if (
+        workspaceRootRef.current !== workspaceRoot ||
+        !workspaceStateRef.current.documents[relativePath]
+      ) {
+        return false;
+      }
+      const content = liveDocumentContentRef.current.get(relativePath);
+      return content !== undefined && hasImagePasteToken(content, token);
+    },
+    [],
+  );
+
+  const removeRegisteredImagePasteToken = useCallback(
+    (workspaceRoot: string, relativePath: string, token: string) => {
+      if (
+        workspaceRootRef.current !== workspaceRoot ||
+        !workspaceStateRef.current.documents[relativePath]
+      ) {
+        return;
+      }
+      const content = liveDocumentContentRef.current.get(relativePath);
+      if (content === undefined) return;
+      const selection =
+        selectionsRef.current.get(relativePath) ??
+        ({ direction: "none", end: content.length, start: content.length } as const);
+      const settled = removeImagePasteToken(content, selection, token);
+      if (!settled.applied) return;
+      selectionsRef.current.set(relativePath, settled.selection);
+      changeDocumentContent(relativePath, settled.value);
+    },
+    [changeDocumentContent],
+  );
+
+  const registerImagePaste = useCallback(
+    (
+      workspaceRoot: string,
+      relativePath: string,
+      operation: PendingImagePasteOperation,
+    ) => {
+      const key = imagePasteOperationKey(workspaceRoot, relativePath);
+      const operations = pendingImagePastesRef.current.get(key) ?? new Set();
+      operations.add(operation);
+      pendingImagePastesRef.current.set(key, operations);
+      void operation.promise.finally(() => {
+        operations.delete(operation);
+        if (operations.size === 0) pendingImagePastesRef.current.delete(key);
+      });
+    },
+    [],
+  );
+
+  const cancelImagePastes = useCallback(
+    async (workspaceRoot: string, relativePath?: string): Promise<void> => {
+      const pending: Promise<void>[] = [];
+      const prefix = `${workspaceRoot}\u0000`;
+      for (const [key, operations] of pendingImagePastesRef.current) {
+        if (
+          relativePath
+            ? key !== imagePasteOperationKey(workspaceRoot, relativePath)
+            : !key.startsWith(prefix)
+        ) {
+          continue;
+        }
+        for (const operation of operations) {
+          pending.push(operation.cancel(), operation.promise);
+        }
+      }
+      await Promise.all(pending);
+    },
+    [],
+  );
+
+  const prepareDocumentForSave = useCallback(
+    async (relativePath: string): Promise<boolean> => {
+      const workspaceRoot = workspaceRootRef.current;
+      if (!workspaceRoot || !workspaceStateRef.current.documents[relativePath]) {
+        return false;
+      }
+      const key = imagePasteOperationKey(workspaceRoot, relativePath);
+
+      for (;;) {
+        const operations = pendingImagePastesRef.current.get(key);
+        if (operations?.size) {
+          await Promise.all(
+            [...operations].map((operation) => operation.promise),
+          );
+          await waitForStateCommit();
+          if (workspaceRootRef.current !== workspaceRoot) return false;
+          continue;
+        }
+
+        return Boolean(
+          liveDocumentContentRef.current.has(relativePath) &&
+            workspaceRootRef.current === workspaceRoot &&
+            workspaceStateRef.current.documents[relativePath],
+        );
+      }
+    },
+    [],
+  );
+
+  const saveDocument = useCallback(
+    async (
+      relativePath = workspaceStateRef.current.activeDocumentId ?? "",
+    ): Promise<boolean> => {
+      if (!relativePath || !(await prepareDocumentForSave(relativePath))) {
+        return false;
+      }
+      return controllerRef.current.saveDocument(relativePath);
+    },
+    [prepareDocumentForSave],
+  );
+
+  const saveDocumentAs = useCallback(
+    async (
+      relativePath = workspaceStateRef.current.activeDocumentId ?? "",
+    ): Promise<boolean> => {
+      if (!relativePath || !(await prepareDocumentForSave(relativePath))) {
+        return false;
+      }
+      return controllerRef.current.saveDocumentAs(relativePath);
+    },
+    [prepareDocumentForSave],
+  );
+
+  const requestFileTreeFocus = useCallback((relativePath: string) => {
+    if (!relativePath) {
+      setFileTreeFocusRequest({
+        id: ++fileTreeFocusIdRef.current,
+        path: "",
+      });
+      return;
+    }
+    const parts = relativePath.split("/");
+    const ancestors = parts
+      .slice(0, -1)
+      .map((_, index) => parts.slice(0, index + 1).join("/"));
+    const expanded = new Set(workspaceStateRef.current.expandedPaths);
+    for (const ancestor of ancestors) {
+      if (expanded.has(ancestor)) continue;
+      controllerRef.current.toggleTreePath(ancestor);
+      expanded.add(ancestor);
+    }
+    setFileTreeFocusRequest({
+      id: ++fileTreeFocusIdRef.current,
+      path: relativePath,
+    });
+  }, []);
+
+  const requestNewMarkdown = useCallback(
+    (parentRelativePath = "") => {
+      const workspaceRoot = workspaceStateRef.current.workspace?.rootPath;
+      if (!workspaceRoot) return;
+      setEntryNameError(null);
+      setEntryNameRequest({
+        entryKind: "file",
+        initialValue: `${t("Untitled")}.md`,
+        mode: "new-file",
+        parentPath: parentRelativePath,
+        workspaceRoot,
+      });
+    },
+    [t],
+  );
+
+  const requestNewFolder = useCallback(
+    (parentRelativePath = "") => {
+      const workspaceRoot = workspaceStateRef.current.workspace?.rootPath;
+      if (!workspaceRoot) return;
+      setEntryNameError(null);
+      setEntryNameRequest({
+        entryKind: "folder",
+        initialValue: t("Untitled Folder"),
+        mode: "new-folder",
+        parentPath: parentRelativePath,
+        workspaceRoot,
+      });
+    },
+    [t],
+  );
+
+  const requestNewDocument = useCallback(() => {
+    if (workspaceStateRef.current.workspace) requestNewMarkdown("");
+    else void controllerRef.current.newDocument();
+  }, [requestNewMarkdown]);
+
+  const requestRename = useCallback((relativePath: string) => {
+    const workspace = workspaceStateRef.current.workspace;
+    if (!workspace) return;
+    const entry = findWorkspaceEntry(workspace.children, relativePath);
+    if (!entry) return;
+    setEntryNameError(null);
+    setEntryNameRequest({
+      entryKind: entry.kind === "directory" ? "folder" : "file",
+      initialValue: entry.name,
+      mode: "rename",
+      parentPath: parentPath(relativePath),
+      relativePath,
+      workspaceRoot: workspace.rootPath,
+    });
+  }, []);
+
+  const invalidateWorkspaceImages = useCallback((workspaceRoot: string) => {
+    workspaceImageCache.clear(workspaceRoot);
+    setImageCacheRevision((revision) => revision + 1);
+  }, []);
+
+  const settleEntryImagePastes = useCallback(
+    async (documentIds: readonly string[]): Promise<boolean> => {
+      for (const id of documentIds) {
+        if (!(await prepareDocumentForSave(id))) return false;
+      }
+      return true;
+    },
+    [prepareDocumentForSave],
+  );
+
+  const refreshSearchAfterEntryMutation = useCallback((workspaceRoot: string) => {
+    if (workspaceRootRef.current !== workspaceRoot) return;
+    const generation = searchGenerationRef.current + 1;
+    searchGenerationRef.current = generation;
+    setSearchResultsQuery(null);
+    const query = searchQueryRef.current.trim();
+    void (async () => {
+      await controllerRef.current.runSearch(query);
+      if (
+        workspaceRootRef.current === workspaceRoot &&
+        generation === searchGenerationRef.current
+      ) {
+        setSearchResultsQuery(query || null);
+      }
+    })();
+  }, []);
+
+  const entryTreeRefreshError = useCallback(
+    (result: { refreshError?: string }) =>
+      new Error(
+        fmt(
+          "The file change succeeded, but the sidebar could not refresh: %@",
+          result.refreshError ?? t("Unknown error"),
+        ),
+      ),
+    [fmt, t],
+  );
+
+  const ensureEntryTreeRefresh = useCallback(
+    async (result: {
+      treeRefreshed: boolean;
+      refreshError?: string;
+    }, workspaceRoot: string, reportFailure = true): Promise<boolean> => {
+      if (workspaceRootRef.current !== workspaceRoot) return false;
+      if (result.treeRefreshed) return true;
+      const refreshed = await controllerRef.current.refreshCurrentWorkspace();
+      if (workspaceRootRef.current !== workspaceRoot) return false;
+      if (refreshed) return true;
+      if (reportFailure && workspaceRootRef.current === workspaceRoot) {
+        controllerRef.current.reportError(entryTreeRefreshError(result));
+      }
+      return false;
+    },
+    [entryTreeRefreshError],
+  );
+
+  const remapAppEntryState = useCallback(
+    (sourcePath: string, destinationPath: string) => {
+      selectionsRef.current = remapPathMap(
+        selectionsRef.current,
+        sourcePath,
+        destinationPath,
+      );
+      liveDocumentContentRef.current = remapPathMap(
+        liveDocumentContentRef.current,
+        sourcePath,
+        destinationPath,
+      );
+      setImageViewerSource((current) =>
+        current && isPathWithinEntry(current.relativePath, sourcePath)
+          ? {
+              ...current,
+              relativePath: remapEntryPath(
+                current.relativePath,
+                sourcePath,
+                destinationPath,
+              ),
+            }
+          : current,
+      );
+      setSearchNavigationTarget((current) =>
+        current && isPathWithinEntry(current.relativePath, sourcePath)
+          ? {
+              ...current,
+              relativePath: remapEntryPath(
+                current.relativePath,
+                sourcePath,
+                destinationPath,
+              ),
+            }
+          : current,
+      );
+      const pendingSearch = pendingSearchNavigationRef.current;
+      if (pendingSearch && isPathWithinEntry(pendingSearch.relativePath, sourcePath)) {
+        pendingSearchNavigationRef.current = {
+          ...pendingSearch,
+          relativePath: remapEntryPath(
+            pendingSearch.relativePath,
+            sourcePath,
+            destinationPath,
+          ),
+        };
+      }
+      setPendingHistoryLoad((current) =>
+        current && isPathWithinEntry(current.documentId, sourcePath)
+          ? {
+              ...current,
+              documentId: remapEntryPath(
+                current.documentId,
+                sourcePath,
+                destinationPath,
+              ),
+            }
+          : current,
+      );
+    },
+    [],
+  );
+
+  const removeAppEntryState = useCallback(
+    (relativePath: string, affectedDocumentIds: readonly string[]) => {
+      const workspaceRoot = workspaceRootRef.current;
+      if (workspaceRoot) {
+        for (const id of affectedDocumentIds) {
+          void cancelImagePastes(workspaceRoot, id);
+        }
+      }
+      for (const id of Array.from(selectionsRef.current.keys())) {
+        if (isPathWithinEntry(id, relativePath)) selectionsRef.current.delete(id);
+      }
+      for (const id of Array.from(liveDocumentContentRef.current.keys())) {
+        if (isPathWithinEntry(id, relativePath)) {
+          liveDocumentContentRef.current.delete(id);
+        }
+      }
+      setImageViewerSource((current) =>
+        current && isPathWithinEntry(current.relativePath, relativePath)
+          ? null
+          : current,
+      );
+      setSearchNavigationTarget((current) =>
+        current && isPathWithinEntry(current.relativePath, relativePath)
+          ? null
+          : current,
+      );
+      if (
+        pendingSearchNavigationRef.current &&
+        isPathWithinEntry(
+          pendingSearchNavigationRef.current.relativePath,
+          relativePath,
+        )
+      ) {
+        pendingSearchNavigationRef.current = null;
+      }
+      setPendingHistoryLoad((current) =>
+        current && isPathWithinEntry(current.documentId, relativePath)
+          ? null
+          : current,
+      );
+    },
+    [cancelImagePastes],
+  );
+
+  const submitEntryName = useCallback(
+    async (name: string) => {
+      const request = entryNameRequest;
+      if (!request || entryOperationBusy) return;
+      const { workspaceRoot } = request;
+      if (workspaceRootRef.current !== workspaceRoot) return;
+      setEntryOperationBusy(true);
+      setEntryNameError(null);
+      try {
+        if (request.mode === "new-file") {
+          const result = await controllerRef.current.createMarkdown(
+            request.parentPath,
+            name,
+            `# ${markdownTitle(name)}\n\n`,
+          );
+          if (workspaceRootRef.current !== workspaceRoot) return;
+          if (!result.applied || !result.snapshot) {
+            setEntryNameError(result.error ?? t("Could not create this file."));
+            return;
+          }
+          const treeReady = await ensureEntryTreeRefresh(result, workspaceRoot);
+          if (workspaceRootRef.current !== workspaceRoot) return;
+          setEntryNameRequest(null);
+          if (treeReady) requestFileTreeFocus(result.snapshot.relativePath);
+          refreshSearchAfterEntryMutation(workspaceRoot);
+          return;
+        }
+
+        if (request.mode === "new-folder") {
+          const result = await controllerRef.current.createDirectory(
+            request.parentPath,
+            name,
+          );
+          if (workspaceRootRef.current !== workspaceRoot) return;
+          const destination = result.mutation?.destinationRelativePath;
+          if (!result.applied || !destination) {
+            setEntryNameError(result.error ?? t("Could not create this folder."));
+            return;
+          }
+          const treeReady = await ensureEntryTreeRefresh(result, workspaceRoot);
+          if (workspaceRootRef.current !== workspaceRoot) return;
+          setEntryNameRequest(null);
+          if (treeReady) requestFileTreeFocus(destination);
+          refreshSearchAfterEntryMutation(workspaceRoot);
+          return;
+        }
+
+        const relativePath = request.relativePath;
+        if (!relativePath) return;
+        const impact = controllerRef.current.inspectEntryImpact(relativePath);
+        const imagePastesSettled = await settleEntryImagePastes(
+          impact.affectedDocumentIds,
+        );
+        if (workspaceRootRef.current !== workspaceRoot) return;
+        if (!imagePastesSettled) {
+          setEntryNameError(t("Could not finish the pending image paste."));
+          return;
+        }
+        const result = await controllerRef.current.renameEntry(relativePath, name);
+        if (workspaceRootRef.current !== workspaceRoot) return;
+        const source = result.mutation?.sourceRelativePath ?? relativePath;
+        const destination = result.mutation?.destinationRelativePath;
+        if (!result.applied || !destination) {
+          setEntryNameError(result.error ?? t("Could not rename this item."));
+          return;
+        }
+        const treeReady = await ensureEntryTreeRefresh(result, workspaceRoot);
+        if (workspaceRootRef.current !== workspaceRoot) return;
+        remapAppEntryState(source, destination);
+        invalidateWorkspaceImages(workspaceRoot);
+        setEntryNameRequest(null);
+        if (treeReady) requestFileTreeFocus(destination);
+        refreshSearchAfterEntryMutation(workspaceRoot);
+      } finally {
+        setEntryOperationBusy(false);
+      }
+    },
+    [
+      entryNameRequest,
+      entryOperationBusy,
+      ensureEntryTreeRefresh,
+      invalidateWorkspaceImages,
+      refreshSearchAfterEntryMutation,
+      remapAppEntryState,
+      requestFileTreeFocus,
+      settleEntryImagePastes,
+      t,
+    ],
+  );
+
+  const performDuplicate = useCallback(
+    async (operation: PendingEntryOperation, saveFirst: boolean) => {
+      if (entryOperationBusy) return;
+      const { workspaceRoot } = operation;
+      if (workspaceRootRef.current !== workspaceRoot) return;
+      setEntryOperationBusy(true);
+      setEntryOperationError(null);
+      try {
+        if (!(await settleEntryImagePastes(operation.affectedDocumentIds))) {
+          setEntryOperationError(t("Could not finish the pending image paste."));
+          return;
+        }
+        if (saveFirst) {
+          for (const id of operation.affectedDirtyDocumentIds) {
+            const saved = await saveDocument(id);
+            if (workspaceRootRef.current !== workspaceRoot) return;
+            if (!saved) {
+              setEntryOperationError(
+                t("Could not save the latest edits. No copy was created."),
+              );
+              return;
+            }
+          }
+        }
+        const result = await controllerRef.current.duplicateEntry(
+          operation.relativePath,
+        );
+        if (workspaceRootRef.current !== workspaceRoot) return;
+        const destination = result.mutation?.destinationRelativePath;
+        if (!result.applied || !destination) {
+          setEntryOperationError(
+            result.error ?? t("Could not create this copy."),
+          );
+          return;
+        }
+        const treeReady = await ensureEntryTreeRefresh(
+          result,
+          workspaceRoot,
+          false,
+        );
+        if (workspaceRootRef.current !== workspaceRoot) return;
+        setPendingDuplicate(null);
+        setEntryOperationError(null);
+        if (treeReady) requestFileTreeFocus(destination);
+        refreshSearchAfterEntryMutation(workspaceRoot);
+        if (operation.kind === "file") {
+          await controllerRef.current.openDocument(destination);
+          if (workspaceRootRef.current !== workspaceRoot) return;
+        } else if (operation.kind === "image") {
+          setImageViewerSource({
+            alt: operation.name,
+            relativePath: destination,
+            workspaceRoot,
+          });
+        }
+        if (!treeReady) {
+          controllerRef.current.reportError(entryTreeRefreshError(result));
+        }
+      } finally {
+        setEntryOperationBusy(false);
+      }
+    },
+    [
+      entryOperationBusy,
+      entryTreeRefreshError,
+      ensureEntryTreeRefresh,
+      refreshSearchAfterEntryMutation,
+      requestFileTreeFocus,
+      saveDocument,
+      settleEntryImagePastes,
+      t,
+    ],
+  );
+
+  const requestDuplicate = useCallback(
+    (relativePath: string) => {
+      const workspace = workspaceStateRef.current.workspace;
+      if (!workspace) return;
+      const entry = findWorkspaceEntry(workspace.children, relativePath);
+      if (!entry || entry.kind === "directory") return;
+      const impact = controllerRef.current.inspectEntryImpact(relativePath);
+      const operation: PendingEntryOperation = {
+        ...impact,
+        kind: entry.kind,
+        name: entry.name,
+        relativePath,
+        workspaceRoot: workspace.rootPath,
+      };
+      if (impact.affectedDirtyDocumentIds.length > 0) {
+        setEntryOperationError(null);
+        setPendingDuplicate(operation);
+      } else {
+        void performDuplicate(operation, false);
+      }
+    },
+    [performDuplicate],
+  );
+
+  const requestMoveToTrash = useCallback((relativePath: string) => {
+    const workspace = workspaceStateRef.current.workspace;
+    if (!workspace) return;
+    const entry = findWorkspaceEntry(workspace.children, relativePath);
+    if (!entry) return;
+    setEntryOperationError(null);
+    setPendingTrash({
+      ...controllerRef.current.inspectEntryImpact(relativePath),
+      kind: entry.kind,
+      name: entry.name,
+      relativePath,
+      workspaceRoot: workspace.rootPath,
+    });
+  }, []);
+
+  const performMoveToTrash = useCallback(async () => {
+    const operation = pendingTrash;
+    if (!operation || entryOperationBusy) return;
+    const { workspaceRoot } = operation;
+    if (workspaceRootRef.current !== workspaceRoot) return;
+    const workspace = workspaceStateRef.current.workspace;
+    const nextFocusPath = workspace
+      ? focusPathAfterRemoval(
+          workspace.children,
+          workspaceStateRef.current.expandedPaths,
+          operation.relativePath,
+        )
+      : "";
+    setEntryOperationBusy(true);
+    setEntryOperationError(null);
+    try {
+      if (!(await settleEntryImagePastes(operation.affectedDocumentIds))) {
+        setEntryOperationError(t("Could not finish the pending image paste."));
+        return;
+      }
+      for (const id of operation.affectedDirtyDocumentIds) {
+        const saved = await saveDocument(id);
+        if (workspaceRootRef.current !== workspaceRoot) return;
+        if (!saved) {
+          setEntryOperationError(
+            t("Could not save the latest edits. Nothing was moved to Trash."),
+          );
+          return;
+        }
+      }
+      const result = await controllerRef.current.trashEntry(
+        operation.relativePath,
+      );
+      if (workspaceRootRef.current !== workspaceRoot) return;
+      if (!result.applied) {
+        setEntryOperationError(
+          result.error ?? t("Could not move this item to Trash."),
+        );
+        return;
+      }
+      const treeReady = await ensureEntryTreeRefresh(result, workspaceRoot);
+      if (workspaceRootRef.current !== workspaceRoot) return;
+      const source = result.mutation?.sourceRelativePath ?? operation.relativePath;
+      removeAppEntryState(source, result.affectedDocumentIds);
+      invalidateWorkspaceImages(workspaceRoot);
+      setPendingTrash(null);
+      setEntryOperationError(null);
+      if (treeReady) requestFileTreeFocus(nextFocusPath);
+      refreshSearchAfterEntryMutation(workspaceRoot);
+    } finally {
+      setEntryOperationBusy(false);
+    }
+  }, [
+    entryOperationBusy,
+    ensureEntryTreeRefresh,
+    invalidateWorkspaceImages,
+    pendingTrash,
+    refreshSearchAfterEntryMutation,
+    removeAppEntryState,
+    requestFileTreeFocus,
+    saveDocument,
+    settleEntryImagePastes,
+    t,
+  ]);
+
+  const cancelImagePastesBeforeWorkspaceChange = useCallback(async () => {
+    const currentState = workspaceStateRef.current;
+    const workspaceRoot = currentState.workspace?.rootPath;
+    if (
+      !workspaceRoot ||
+      Object.values(currentState.documents).some(isDocumentDirty)
+    ) {
+      return;
+    }
+    await cancelImagePastes(workspaceRoot);
+  }, [cancelImagePastes]);
+
+  const openFolder = useCallback(async (): Promise<boolean> => {
+    await cancelImagePastesBeforeWorkspaceChange();
+    return controllerRef.current.openFolder();
+  }, [cancelImagePastesBeforeWorkspaceChange]);
+
+  const openRecentWorkspace = useCallback(
+    async (path: string): Promise<boolean> => {
+      await cancelImagePastesBeforeWorkspaceChange();
+      return controllerRef.current.openRecentWorkspace(path);
+    },
+    [cancelImagePastesBeforeWorkspaceChange],
+  );
+
+  const pasteWorkspaceImage = useCallback(
+    (file: File, selection: Required<TextSelection>) => {
+      if (!currentDocument || !state.workspace) return;
+      try {
+        assertWorkspaceImageSize(file.size);
+      } catch (error) {
+        controller.reportError(error);
+        return;
+      }
+
+      const relativePath = currentDocument.relativePath;
+      const workspaceRoot = state.workspace.rootPath;
+      const currentContent =
+        liveDocumentContentRef.current.get(relativePath) ??
+        currentDocument.content;
+      const pending = insertImagePasteToken(currentContent, selection);
+      const leaseId = createImagePasteId();
+      selectionsRef.current.set(relativePath, pending.selection);
+      changeDocumentContent(relativePath, pending.value);
+
+      let cancelPromise: Promise<void> | undefined;
+      const operation: PendingImagePasteOperation = {
+        cancel: () => Promise.resolve(),
+        cancelled: false,
+        promise: Promise.resolve(),
+        referenced: false,
+        token: pending.token,
+      };
+      operation.cancel = () => {
+        operation.cancelled = true;
+        if (operation.referenced) return Promise.resolve();
+        cancelPromise ??= cancelWorkspaceImage(workspaceRoot, leaseId).catch(
+          (error) => {
+            if (workspaceRootRef.current === workspaceRoot) {
+              controllerRef.current.reportError(error);
+            }
+          },
+        );
+        return cancelPromise;
+      };
+      operation.promise = (async () => {
+        try {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          if (
+            operation.cancelled ||
+            !imagePasteContextIsLive(
+              workspaceRoot,
+              relativePath,
+              pending.token,
+            )
+          ) {
+            return;
+          }
+          const image = await createWorkspaceImage(
+            workspaceRoot,
+            relativePath,
+            bytes,
+            leaseId,
+          );
+          if (
+            operation.cancelled ||
+            !imagePasteContextIsLive(
+              workspaceRoot,
+              relativePath,
+              pending.token,
+            )
+          ) {
+            return;
+          }
+          await commitWorkspaceImage(workspaceRoot, leaseId);
+          if (
+            operation.cancelled ||
+            !imagePasteContextIsLive(
+              workspaceRoot,
+              relativePath,
+              pending.token,
+            )
+          ) {
+            return;
+          }
+          const latestContent = liveDocumentContentRef.current.get(relativePath);
+          if (latestContent === undefined) return;
+          const latestSelection =
+            selectionsRef.current.get(relativePath) ?? pending.selection;
+          const settled = resolveImagePasteToken(
+            latestContent,
+            latestSelection,
+            pending.token,
+            `![${t("Pasted image")}](${image.markdownPath})`,
+          );
+          if (!settled.applied) return;
+          operation.referenced = true;
+          selectionsRef.current.set(relativePath, settled.selection);
+          changeDocumentContent(relativePath, settled.value);
+          await controllerRef.current.refreshCurrentWorkspace();
+        } catch (error) {
+          if (
+            !operation.cancelled &&
+            workspaceRootRef.current === workspaceRoot
+          ) {
+            controllerRef.current.reportError(error);
+          }
+        } finally {
+          if (!operation.referenced) await operation.cancel();
+          removeRegisteredImagePasteToken(
+            workspaceRoot,
+            relativePath,
+            pending.token,
+          );
+        }
+      })();
+      registerImagePaste(workspaceRoot, relativePath, operation);
+    },
+    [
+      changeDocumentContent,
+      controller.reportError,
+      currentDocument,
+      imagePasteContextIsLive,
+      registerImagePaste,
+      removeRegisteredImagePasteToken,
+      state.workspace,
+      t,
+    ],
+  );
 
   useEffect(() => writeNumber("viva.sidebarWidth", sidebarWidth), [sidebarWidth]);
   useEffect(
     () => writeNumber("viva.splitPosition", splitPosition),
     [splitPosition],
   );
+
+  useEffect(() => {
+    const workspaceRoot = state.workspace?.rootPath ?? null;
+    setImageViewerSource((current) =>
+      current?.workspaceRoot === workspaceRoot ? current : null,
+    );
+  }, [state.workspace?.rootPath]);
+
+  useEffect(() => {
+    setEntryNameRequest(null);
+    setEntryNameError(null);
+    setPendingDuplicate(null);
+    setPendingTrash(null);
+    setEntryOperationError(null);
+    setFileTreeFocusRequest(null);
+  }, [state.workspace?.rootPath]);
 
   useEffect(() => {
     if (theme === "system") delete document.documentElement.dataset.theme;
@@ -452,12 +1523,217 @@ export function App() {
   }, [controller.reportError, language]);
 
   useEffect(() => {
-    if (state.activity !== "search") return;
+    const generation = findWorkerGenerationRef.current + 1;
+    findWorkerGenerationRef.current = generation;
+    findWorkerRef.current?.terminate();
+    findWorkerRef.current = null;
+
+    const documentId = currentDocument?.relativePath ?? null;
+    const content = currentDocument?.content ?? null;
+    const query = findQuery;
+    const options = {
+      caseSensitive: findCaseSensitive,
+      wholeWord: findWholeWord,
+    };
+    if (findMode === null || !documentId || content === null || !query) {
+      findSelectionOffsetRef.current = null;
+      setFindScan({
+        activeIndex: -1,
+        ...options,
+        content,
+        count: 0,
+        documentId,
+        query,
+      });
+      return;
+    }
+
+    const selectionOffset = findSelectionOffsetRef.current;
+    findSelectionOffsetRef.current = null;
+    const requestId = findWorkerRequestRef.current + 1;
+    findWorkerRequestRef.current = requestId;
+    let fallbackTimer: number | null = null;
+    let disposed = false;
+
+    const applyResult = (response: FindWorkerResponse) => {
+      if (
+        disposed ||
+        response.generation !== findWorkerGenerationRef.current ||
+        response.requestId !== findWorkerRequestRef.current
+      ) {
+        return;
+      }
+      setFindScan({
+        activeIndex: response.activeIndex,
+        ...options,
+        content,
+        count: response.count,
+        documentId,
+        match: response.match,
+        query,
+      });
+      if (selectionOffset !== null && response.activeIndex >= 0) {
+        setFindActiveIndex(response.activeIndex);
+      }
+    };
+
+    const runFallback = () => {
+      fallbackTimer = window.setTimeout(() => {
+        if (disposed) return;
+        const offsetResult =
+          selectionOffset === null
+            ? null
+            : findLiteralMatchIndexAtOrAfter(
+                content,
+                query,
+                options,
+                selectionOffset,
+              );
+        const count =
+          offsetResult?.count ?? countLiteralMatches(content, query, options);
+        const activeIndex =
+          count > 0
+            ? offsetResult && offsetResult.index >= 0
+              ? offsetResult.index
+              : wrapMatchIndex(findActiveIndexRef.current, count)
+            : -1;
+        applyResult({
+          activeIndex,
+          count,
+          generation,
+          match:
+            activeIndex >= 0
+              ? findLiteralMatchAt(content, query, options, activeIndex)
+              : undefined,
+          requestId,
+        });
+      }, 0);
+    };
+
+    if (typeof Worker === "undefined") {
+      runFallback();
+    } else {
+      const worker = new FindScanWorker();
+      findWorkerRef.current = worker;
+      worker.onmessage = (event: MessageEvent<FindWorkerResponse>) => {
+        applyResult(event.data);
+      };
+      worker.onerror = () => {
+        if (findWorkerRef.current === worker) findWorkerRef.current = null;
+        worker.terminate();
+        runFallback();
+      };
+      worker.postMessage({
+        activeIndex: findActiveIndexRef.current,
+        generation,
+        options,
+        query,
+        requestId,
+        selectionOffset: selectionOffset ?? undefined,
+        source: content,
+        type: "initialize",
+      });
+    }
+
+    return () => {
+      disposed = true;
+      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+      const worker = findWorkerRef.current;
+      if (worker) worker.terminate();
+      if (findWorkerRef.current === worker) findWorkerRef.current = null;
+    };
+  }, [
+    currentDocument?.content,
+    currentDocument?.relativePath,
+    findCaseSensitive,
+    findMode !== null,
+    findQuery,
+    findWholeWord,
+  ]);
+
+  useEffect(() => {
+    if (!findScanIsCurrent || findScan.count <= 0) return;
+    const activeIndex = wrapMatchIndex(findActiveIndex, findScan.count);
+    if (activeIndex === findScan.activeIndex) return;
+    const generation = findWorkerGenerationRef.current;
+    const requestId = findWorkerRequestRef.current + 1;
+    findWorkerRequestRef.current = requestId;
+    const worker = findWorkerRef.current;
+    if (worker) {
+      worker.postMessage({
+        activeIndex,
+        generation,
+        requestId,
+        type: "select",
+      });
+      return;
+    }
     const timer = window.setTimeout(() => {
-      void controller.runSearch(searchQuery);
+      if (
+        generation !== findWorkerGenerationRef.current ||
+        requestId !== findWorkerRequestRef.current
+      ) {
+        return;
+      }
+      setFindScan((current) => ({
+        ...current,
+        activeIndex,
+        match:
+          current.content === null
+            ? undefined
+            : findLiteralMatchAt(
+                current.content,
+                current.query,
+                {
+                  caseSensitive: current.caseSensitive,
+                  wholeWord: current.wholeWord,
+                },
+                activeIndex,
+              ),
+      }));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [findActiveIndex, findScan, findScanIsCurrent]);
+
+  const runSearchForGeneration = useCallback(
+    async (query: string, generation: number) => {
+      await controller.runSearch(query);
+      if (generation !== searchGenerationRef.current) return;
+      setSearchResultsQuery(query.trim());
+    },
+    [controller.runSearch],
+  );
+
+  const changeSearchQuery = useCallback(
+    (query: string) => {
+      searchGenerationRef.current += 1;
+      searchQueryRef.current = query;
+      setSearchResultsQuery(null);
+      setSearchQuery(query);
+      void controller.runSearch("");
+    },
+    [controller.runSearch],
+  );
+
+  const submitSearch = useCallback(
+    (query: string) => {
+      const generation = searchGenerationRef.current + 1;
+      searchGenerationRef.current = generation;
+      setSearchResultsQuery(null);
+      void runSearchForGeneration(query, generation);
+    },
+    [runSearchForGeneration],
+  );
+
+  useEffect(() => {
+    if (state.activity !== "search") return;
+    const generation = searchGenerationRef.current;
+    const timer = window.setTimeout(() => {
+      if (generation !== searchGenerationRef.current) return;
+      void runSearchForGeneration(searchQuery, generation);
     }, searchQuery.trim() ? 220 : 0);
     return () => window.clearTimeout(timer);
-  }, [controller.runSearch, searchQuery, state.activity]);
+  }, [runSearchForGeneration, searchQuery, state.activity]);
 
   useEffect(() => {
     if (
@@ -498,6 +1774,33 @@ export function App() {
       editor.setSelectionRange(offset, offset, "none");
     });
   }, [currentDocument, searchNavigationTarget]);
+
+  useEffect(() => {
+    if (!currentDocument) {
+      setFindMode(null);
+      return;
+    }
+    if (!activeFindMatch || findMode === null) return;
+    const selection = {
+      direction: "none",
+      end: activeFindMatch.end,
+      start: activeFindMatch.start,
+    } as const;
+    const position = positionAtOffset(
+      currentDocument.content,
+      activeFindMatch.start,
+    );
+    selectionsRef.current.set(currentDocument.relativePath, selection);
+    setCursor(position);
+    setScrollSync({ line: position.line, target: "both" });
+    setFindRevealRequestId((requestId) => requestId + 1);
+  }, [
+    activeFindMatch?.end,
+    activeFindMatch?.start,
+    currentDocument?.content,
+    currentDocument?.relativePath,
+    findMode,
+  ]);
 
   useEffect(() => {
     if (workbenchSurface === "history" && currentDocument) {
@@ -542,17 +1845,182 @@ export function App() {
     );
   }, [controller.toggleFocus, state.focusMode]);
 
+  const openFind = useCallback(
+    (mode: Exclude<FindMode, null>) => {
+      if (!currentDocument) return;
+      if (findMode === null) {
+        findReturnFocusRef.current =
+          document.activeElement instanceof HTMLElement &&
+          document.activeElement !== document.body
+            ? document.activeElement
+            : null;
+      }
+      setPaletteMode(null);
+      setWorkbenchSurface("document");
+      if (!state.focusMode && state.viewMode === "preview") {
+        controller.selectView("split");
+      }
+
+      const selection = selectionsRef.current.get(
+        currentDocument.relativePath,
+      );
+      const selectedText = selection
+        ? currentDocument.content.slice(selection.start, selection.end)
+        : "";
+      if (
+        selection &&
+        selectedText.length > 0 &&
+        selectedText.length <= 256 &&
+        !/[\r\n]/u.test(selectedText)
+      ) {
+        let selectedMatchIndex = 0;
+        if (currentDocument.content.length > LIVE_MARKDOWN_MAX_CHARACTERS) {
+          findSelectionOffsetRef.current = selection.start;
+        } else {
+          selectedMatchIndex = findLiteralMatchIndexAtOffset(
+            currentDocument.content,
+            selectedText,
+            {
+              caseSensitive: findCaseSensitive,
+              wholeWord: findWholeWord,
+            },
+            selection.start,
+          );
+        }
+        setFindQuery(selectedText);
+        setFindActiveIndex(Math.max(0, selectedMatchIndex));
+      } else {
+        findSelectionOffsetRef.current = null;
+        setFindActiveIndex(0);
+      }
+      setFindMode(mode);
+      setFindFocusTarget(mode === "replace" ? "replacement" : "query");
+      setFindFocusEpoch((epoch) => epoch + 1);
+    },
+    [
+      controller.selectView,
+      currentDocument,
+      findCaseSensitive,
+      findMode,
+      findWholeWord,
+      state.focusMode,
+      state.viewMode,
+    ],
+  );
+
+  const closeFind = useCallback(() => {
+    const returnFocus = findReturnFocusRef.current;
+    findReturnFocusRef.current = null;
+    setFindMode(null);
+    requestAnimationFrame(() => {
+      if (returnFocus?.isConnected) {
+        returnFocus.focus();
+        return;
+      }
+      const fallback =
+        editorRef.current ??
+        editorStageRef.current?.querySelector<HTMLElement>(
+          ".live-editor-pane__active textarea, .live-editor-pane__block[tabindex='0']",
+        );
+      fallback?.focus();
+    });
+  }, []);
+
+  const stepFind = useCallback(
+    (direction: -1 | 1) => {
+      setFindActiveIndex((index) =>
+        stepMatchIndex(index, findMatchCount, direction),
+      );
+    },
+    [findMatchCount],
+  );
+
+  const replaceCurrentMatch = useCallback(() => {
+    if (!currentDocument || !activeFindMatch) return;
+    const nextContent = replaceOneMatch(
+      currentDocument.content,
+      activeFindMatch,
+      findReplacement,
+    );
+    const nextThreshold = activeFindMatch.start + findReplacement.length;
+    const nextMatchState = findLiteralMatchIndexAtOrAfter(
+      nextContent,
+      findQuery,
+      {
+        caseSensitive: findCaseSensitive,
+        wholeWord: findWholeWord,
+      },
+      nextThreshold,
+    );
+    if (nextMatchState.count > 0) {
+      setFindActiveIndex(nextMatchState.index >= 0 ? nextMatchState.index : 0);
+    } else {
+      const selection = {
+        direction: "none",
+        end: nextThreshold,
+        start: activeFindMatch.start,
+      } as const;
+      selectionsRef.current.set(currentDocument.relativePath, selection);
+      setCursor(positionAtOffset(nextContent, nextThreshold));
+      setFindActiveIndex(-1);
+    }
+    changeDocumentContent(currentDocument.relativePath, nextContent);
+  }, [
+    activeFindMatch,
+    changeDocumentContent,
+    currentDocument,
+    findCaseSensitive,
+    findQuery,
+    findReplacement,
+    findWholeWord,
+  ]);
+
+  const replaceEveryMatch = useCallback(() => {
+    if (!currentDocument || findMatchCount === 0) return;
+    const nextContent = replaceAllLiteralMatches(
+      currentDocument.content,
+      findQuery,
+      {
+        caseSensitive: findCaseSensitive,
+        wholeWord: findWholeWord,
+      },
+      findReplacement,
+    );
+    const nextMatchCount = countLiteralMatches(nextContent, findQuery, {
+      caseSensitive: findCaseSensitive,
+      wholeWord: findWholeWord,
+    });
+    setFindActiveIndex(nextMatchCount > 0 ? 0 : -1);
+    changeDocumentContent(currentDocument.relativePath, nextContent);
+  }, [
+    changeDocumentContent,
+    currentDocument,
+    findCaseSensitive,
+    findMatchCount,
+    findQuery,
+    findReplacement,
+    findWholeWord,
+  ]);
+
   const requestTabClose = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const document = state.documents[id];
       if (!document) return;
       if (isDocumentDirty(document)) {
         setPendingClose({ id, exitApplication: false });
       } else {
+        const workspaceRoot = state.workspace?.rootPath;
+        if (workspaceRoot) await cancelImagePastes(workspaceRoot, id);
+        if (!workspaceStateRef.current.documents[id]) return;
         controller.closeDocument(id);
       }
     },
-    [controller.closeDocument, state.documents],
+    [
+      cancelImagePastes,
+      controller.closeDocument,
+      state.documents,
+      state.workspace?.rootPath,
+    ],
   );
 
   const requestApplicationClose = useCallback(() => {
@@ -569,8 +2037,14 @@ export function App() {
 
   const closeApplication = useCallback(() => {
     if (dirty) requestApplicationClose();
-    else void requestClose();
-  }, [dirty, requestApplicationClose, requestClose]);
+    else {
+      void (async () => {
+        const workspaceRoot = workspaceRootRef.current;
+        if (workspaceRoot) await cancelImagePastes(workspaceRoot);
+        await requestClose();
+      })();
+    }
+  }, [cancelImagePastes, dirty, requestApplicationClose, requestClose]);
 
   const closeCurrentTab = useCallback(() => {
     if (state.activeDocumentId) requestTabClose(state.activeDocumentId);
@@ -592,11 +2066,13 @@ export function App() {
     (command: NativeMenuCommand) => {
       const actions: Partial<Record<NativeMenuCommand, () => void>> = {
         "app.quit": closeApplication,
-        "file.new": () => void controller.newDocument(),
+        "edit.find": () => openFind("find"),
+        "edit.replace": () => openFind("replace"),
+        "file.new": requestNewDocument,
         "file.newWindow": openNewEditorWindow,
-        "file.open": () => void controller.openFolder(),
-        "file.save": () => void controller.saveDocument(),
-        "file.saveAs": () => void controller.saveDocumentAs(),
+        "file.open": () => void openFolder(),
+        "file.save": () => void saveDocument(),
+        "file.saveAs": () => void saveDocumentAs(),
         "file.closeTab": closeCurrentTab,
         "help.showCommands": () => setPaletteMode("commands"),
         "view.toggleSidebar": controller.toggleSidebar,
@@ -611,13 +2087,14 @@ export function App() {
     [
       closeApplication,
       closeCurrentTab,
-      controller.newDocument,
-      controller.openFolder,
       controller.reportError,
-      controller.saveDocument,
-      controller.saveDocumentAs,
       controller.toggleSidebar,
+      openFolder,
       openNewEditorWindow,
+      openFind,
+      requestNewDocument,
+      saveDocument,
+      saveDocumentAs,
       selectDocumentView,
       toggleFocusMode,
     ],
@@ -629,54 +2106,38 @@ export function App() {
       closeTab: closeCurrentTab,
       commandPalette: () => setPaletteMode("commands"),
       editView: () => selectDocumentView("edit"),
+      find: () => openFind("find"),
       focusMode: toggleFocusMode,
       liveView: () => selectDocumentView("live"),
-      newDocument: () => void controller.newDocument(),
+      newDocument: requestNewDocument,
       newWindow: openNewEditorWindow,
-      openFolder: () => void controller.openFolder(),
+      openFolder: () => void openFolder(),
       previewView: () => selectDocumentView("preview"),
       quickOpen: () => setPaletteMode("files"),
-      save: () => void controller.saveDocument(),
-      saveAs: () => void controller.saveDocumentAs(),
+      replace: () => openFind("replace"),
+      save: () => void saveDocument(),
+      saveAs: () => void saveDocumentAs(),
       splitView: () => selectDocumentView("split"),
       toggleSidebar: controller.toggleSidebar,
     }),
     [
       closeCurrentTab,
-      controller.newDocument,
-      controller.openFolder,
       controller.reportError,
-      controller.saveDocument,
-      controller.saveDocumentAs,
       controller.toggleSidebar,
+      openFolder,
       openNewEditorWindow,
+      openFind,
+      requestNewDocument,
+      saveDocument,
+      saveDocumentAs,
       selectDocumentView,
       toggleFocusMode,
     ],
   );
   useAppShortcuts(shortcutHandlers);
 
-  const paletteItems = useMemo<CommandPaletteItem[]>(() => {
-    if (paletteMode === "files") {
-      return workspaceQuickEntries.map((entry) => ({
-        id: `${entry.kind}:${entry.relativePath}`,
-        label: entry.name,
-        detail: entry.relativePath,
-        icon:
-          entry.kind === "image" ? (
-            <ImageIcon size={16} />
-          ) : (
-            <FileMarkdownIcon size={16} />
-          ),
-        keywords: [entry.relativePath],
-        section: t("Files"),
-        onSelect: () =>
-          entry.kind === "image"
-            ? openWorkspaceImage(entry.relativePath, entry.name)
-            : void controller.openDocument(entry.relativePath),
-      }));
-    }
-    return [
+  const commandPaletteItems = useMemo<CommandPaletteItem[]>(
+    () => [
       {
         id: "new-window",
         label: t("New window"),
@@ -693,7 +2154,7 @@ export function App() {
         icon: <FolderOpenIcon size={16} />,
         shortcut: shortcutLabels.openFolder,
         section: t("File"),
-        onSelect: () => void controller.openFolder(),
+        onSelect: () => void openFolder(),
       },
       {
         id: "new-document",
@@ -703,7 +2164,7 @@ export function App() {
         icon: <PlusIcon size={16} />,
         shortcut: shortcutLabels.newDocument,
         section: t("File"),
-        onSelect: () => void controller.newDocument(),
+        onSelect: requestNewDocument,
       },
       {
         id: "save",
@@ -712,7 +2173,25 @@ export function App() {
         icon: <FileMarkdownIcon size={16} />,
         shortcut: shortcutLabels.save,
         section: t("File"),
-        onSelect: () => void controller.saveDocument(),
+        onSelect: () => void saveDocument(),
+      },
+      {
+        id: "find-document",
+        label: t("Find in document"),
+        disabled: !currentDocument,
+        icon: <SearchIcon size={16} />,
+        shortcut: shortcutLabels.find,
+        section: t("Document"),
+        onSelect: () => openFind("find"),
+      },
+      {
+        id: "replace-document",
+        label: t("Find and replace"),
+        disabled: !currentDocument,
+        icon: <EditIcon size={16} />,
+        shortcut: shortcutLabels.replace,
+        section: t("Document"),
+        onSelect: () => openFind("replace"),
       },
       {
         id: "file-history",
@@ -775,36 +2254,39 @@ export function App() {
         section: t("Appearance"),
         onSelect: () => setTheme(appearance),
       })),
-    ];
-  }, [
-    controller.newDocument,
-    controller.openDocument,
-    controller.openFolder,
-    controller.reportError,
-    controller.saveDocument,
-    controller.toggleSidebar,
-    currentDocument,
-    documentViewOptions,
-    openWorkspaceImage,
-    openNewEditorWindow,
-    paletteMode,
-    state.focusMode,
-    state.sidebarVisible,
-    state.workspace,
-    theme,
-    fmt,
-    t,
-    toggleAppearance,
-    toggleFocusMode,
-    toggleHistory,
-    selectDocumentView,
-    shortcutLabels,
-    workbenchSurface,
-    workspaceQuickEntries,
-  ]);
+    ],
+    [
+      controller.toggleSidebar,
+      currentDocument,
+      documentViewOptions,
+      openFolder,
+      openNewEditorWindow,
+      openFind,
+      requestNewDocument,
+      saveDocument,
+      state.focusMode,
+      state.sidebarVisible,
+      state.workspace,
+      theme,
+      fmt,
+      t,
+      toggleAppearance,
+      toggleFocusMode,
+      toggleHistory,
+      selectDocumentView,
+      shortcutLabels,
+      workbenchSurface,
+    ],
+  );
+  const paletteItems =
+    paletteMode === "files" ? quickOpenPaletteItems : commandPaletteItems;
 
   const handleDiscard = useCallback(async () => {
     if (!pendingClose) return;
+    const workspaceRoot = state.workspace?.rootPath;
+    if (workspaceRoot) {
+      await cancelImagePastes(workspaceRoot, pendingClose.id);
+    }
     const nextDirty = state.documentOrder.find(
       (id) => id !== pendingClose.id && isDocumentDirty(state.documents[id]),
     );
@@ -819,17 +2301,19 @@ export function App() {
       setPendingClose(null);
     }
   }, [
+    cancelImagePastes,
     controller.closeDocument,
     pendingClose,
     requestClose,
     state.documentOrder,
     state.documents,
+    state.workspace?.rootPath,
   ]);
 
   const handleSaveBeforeClose = useCallback(async () => {
     if (!pendingClose) return;
     setDialogSaving(true);
-    const saved = await controller.saveDocument(pendingClose.id);
+    const saved = await saveDocument(pendingClose.id);
     setDialogSaving(false);
     if (!saved) return;
 
@@ -844,7 +2328,14 @@ export function App() {
       controller.closeDocument(pendingClose.id);
       setPendingClose(null);
     }
-  }, [controller, pendingClose, requestClose, state.documentOrder, state.documents]);
+  }, [
+    controller.closeDocument,
+    pendingClose,
+    requestClose,
+    saveDocument,
+    state.documentOrder,
+    state.documents,
+  ]);
 
   const handleCloseCancel = useCallback(async () => {
     if (!pendingClose) return;
@@ -902,22 +2393,22 @@ export function App() {
         });
         return;
       }
-      controller.changeDocument(currentDocument.relativePath, entry.content);
+      changeDocumentContent(currentDocument.relativePath, entry.content);
       setWorkbenchSurface("document");
     },
-    [controller.changeDocument, currentDocument],
+    [changeDocumentContent, currentDocument],
   );
 
   const confirmHistoryLoad = useCallback(() => {
     if (!pendingHistoryLoad) return;
-    controller.changeDocument(
+    changeDocumentContent(
       pendingHistoryLoad.documentId,
       pendingHistoryLoad.content,
     );
     controller.activateDocument(pendingHistoryLoad.documentId);
     setPendingHistoryLoad(null);
     setWorkbenchSurface("document");
-  }, [controller.activateDocument, controller.changeDocument, pendingHistoryLoad]);
+  }, [changeDocumentContent, controller.activateDocument, pendingHistoryLoad]);
 
   const appStyle = {
     "--sidebar-preferred-width": `${sidebarWidth}px`,
@@ -1001,16 +2492,23 @@ export function App() {
         {titleBar}
         <Welcome
           busy={busy}
-          onNewDocument={() => void controller.newDocument()}
-          onOpenFolder={() => void controller.openFolder()}
-          onOpenRecent={(path) => void controller.openRecentWorkspace(path)}
+          onNewDocument={requestNewDocument}
+          onOpenFolder={() => void openFolder()}
+          onOpenRecent={(path) => void openRecentWorkspace(path)}
           recentWorkspaces={recentWorkspaces}
         />
         <StatusBar message={status.message} messageTone={status.tone} />
         <CommandPalette
           items={paletteItems}
+          maxResults={20}
+          onItemSelect={
+            paletteMode === "files" ? handleQuickOpenSelect : undefined
+          }
           onOpenChange={(open) => setPaletteMode(open ? paletteMode : null)}
           open={paletteMode !== null}
+          renderItemIcon={
+            paletteMode === "files" ? renderQuickOpenIcon : undefined
+          }
         />
       </div>
     );
@@ -1027,13 +2525,21 @@ export function App() {
     state.activity === "files" ? (
       <FileTree
         activePath={imageViewerSource?.relativePath ?? state.activeDocumentId}
+        busy={busy || entryOperationBusy}
         expandedPaths={state.expandedPaths}
+        focusRequest={fileTreeFocusRequest}
+        key={state.workspace.rootPath}
         modifiedPaths={modifiedPaths}
         nodes={state.workspace.children}
+        onDuplicate={requestDuplicate}
+        onMoveToTrash={requestMoveToTrash}
+        onNewFolder={requestNewFolder}
+        onNewMarkdownFile={requestNewMarkdown}
         onOpen={(path) => {
           if (workspaceImagePaths.has(path)) openWorkspaceImage(path);
           else void controller.openDocument(path);
         }}
+        onRename={requestRename}
         onReveal={(path) => {
           const workspaceRoot = state.workspace?.rootPath;
           if (!workspaceRoot) return;
@@ -1061,10 +2567,11 @@ export function App() {
         clearIcon="×"
         loading={searching}
         onOpenResult={(result) => void openSearchResult(result)}
-        onQueryChange={setSearchQuery}
-        onSubmit={(query) => void controller.runSearch(query)}
+        onQueryChange={changeSearchQuery}
+        onSubmit={submitSearch}
         query={searchQuery}
         results={searchResults}
+        resultsQuery={searchResultsQuery}
         searchIcon={<SearchIcon size={15} />}
       />
     ) : (
@@ -1096,7 +2603,7 @@ export function App() {
                 <>
                   <IconButton
                     label={t("New document")}
-                    onClick={() => void controller.newDocument()}
+                    onClick={requestNewDocument}
                     shortcut={shortcutLabels.newDocument}
                     size="medium"
                     tooltipPlacement="right"
@@ -1143,7 +2650,7 @@ export function App() {
                     state.activity === "files" ? (
                       <IconButton
                         label={t("New document")}
-                        onClick={() => void controller.newDocument()}
+                        onClick={requestNewDocument}
                         size="small"
                       >
                         <PlusIcon size={15} />
@@ -1182,8 +2689,8 @@ export function App() {
               closeIcon="×"
               onActivate={controller.activateDocument}
               onClose={requestTabClose}
-              onSave={(id) => void controller.saveDocument(id)}
-              onSaveAs={(id) => void controller.saveDocumentAs(id)}
+              onSave={(id) => void saveDocument(id)}
+              onSaveAs={(id) => void saveDocumentAs(id)}
               tabs={tabs}
             />
           ) : null}
@@ -1263,17 +2770,75 @@ export function App() {
                 assetUrl={background.assetUrl}
                 settings={background.settings}
               />
-              {state.viewMode === "live" && !liveDocumentTooLarge ? (
+              {findMode ? (
+                <FindBar
+                  activeIndex={resolvedFindIndex}
+                  caseSensitive={findCaseSensitive}
+                  focusTarget={findFocusTarget}
+                  key={`${currentDocument.relativePath}:${findFocusEpoch}`}
+                  labels={{
+                    close: t("Close find and replace"),
+                    find: t("Find in document"),
+                    hideReplace: t("Hide replace"),
+                    matchCase: t("Match case"),
+                    nextMatch: t("Next match"),
+                    previousMatch: t("Previous match"),
+                    replace: t("Replace"),
+                    replaceAll: t("Replace all"),
+                    replaceInput: t("Replace with"),
+                    showReplace: t("Show replace"),
+                    wholeWord: t("Whole word"),
+                  }}
+                  matchCount={findMatchCount}
+                  onCaseSensitiveChange={(value) => {
+                    setFindCaseSensitive(value);
+                    setFindActiveIndex(0);
+                  }}
+                  onClose={closeFind}
+                  onNext={() => stepFind(1)}
+                  onPrevious={() => stepFind(-1)}
+                  onQueryChange={(value) => {
+                    findSelectionOffsetRef.current = null;
+                    setFindQuery(value);
+                    setFindActiveIndex(0);
+                  }}
+                  onReplace={replaceCurrentMatch}
+                  onReplaceAll={replaceEveryMatch}
+                  onReplaceVisibleChange={(visible) => {
+                    setFindMode(visible ? "replace" : "find");
+                    setFindFocusTarget(visible ? "replacement" : "query");
+                  }}
+                  onReplacementChange={setFindReplacement}
+                  onWholeWordChange={(value) => {
+                    setFindWholeWord(value);
+                    setFindActiveIndex(0);
+                  }}
+                  query={findQuery}
+                  replacement={findReplacement}
+                  replaceVisible={findMode === "replace"}
+                  wholeWord={findWholeWord}
+                />
+              ) : null}
+              {!state.focusMode &&
+              state.viewMode === "live" &&
+              !liveDocumentTooLarge ? (
                 <LiveEditorPane
                   ariaLabel={fmt("Live editing %@", currentDocument.name)}
                   documentId={currentDocument.relativePath}
                   format={documentFormat}
+                  imageCacheRevision={imageCacheRevision}
                   onChange={(content) =>
-                    controller.changeDocument(currentDocument.relativePath, content)
+                    changeDocumentContent(currentDocument.relativePath, content)
                   }
                   onLinkRequest={handleLinkRequest}
                   onImageRequest={handleImageRequest}
+                  onPasteImage={pasteWorkspaceImage}
                   onPositionChange={setCursor}
+                  onSelectionChange={(selection) =>
+                    selectionsRef.current.set(currentDocument.relativePath, selection)
+                  }
+                  revealSelection={findMode ? activeFindMatch ?? null : null}
+                  revealSelectionRequestId={findRevealRequestId}
                   value={currentDocument.content}
                   workspaceRoot={state.workspace.rootPath}
                 />
@@ -1283,12 +2848,13 @@ export function App() {
                   autoFocus
                   ref={editorRef}
                   onChange={(content) =>
-                    controller.changeDocument(currentDocument.relativePath, content)
+                    changeDocumentContent(currentDocument.relativePath, content)
                   }
                   onSelectionChange={(selection) =>
                     selectionsRef.current.set(currentDocument.relativePath, selection)
                   }
                   onPositionChange={largeDocument ? undefined : setCursor}
+                  onPasteImage={pasteWorkspaceImage}
                   onSourceLineChange={
                     largeDocument
                       ? undefined
@@ -1300,8 +2866,12 @@ export function App() {
                       ? scrollSync.line
                       : null
                   }
+                  revealSelectionRequestId={
+                    findMode ? findRevealRequestId : undefined
+                  }
                   selection={activeSelection}
                   showPosition={false}
+                  typewriterMode={state.focusMode}
                   value={currentDocument.content}
                 />
               ) : null}
@@ -1326,6 +2896,7 @@ export function App() {
                   ariaLabel={fmt("Previewing %@", currentDocument.name)}
                   documentPath={currentDocument.relativePath}
                   format={documentFormat}
+                  imageCacheRevision={imageCacheRevision}
                   onImageRequest={handleImageRequest}
                   onLinkRequest={handleLinkRequest}
                   onSourceLineChange={
@@ -1355,7 +2926,7 @@ export function App() {
             <EmptyState
               actions={
                 <Button
-                  onClick={() => void controller.newDocument()}
+                  onClick={requestNewDocument}
                   startIcon={<PlusIcon size={16} />}
                   variant="primary"
                 >
@@ -1409,9 +2980,65 @@ export function App() {
         }
         items={paletteItems}
         label={paletteMode === "files" ? t("Quick open") : t("Command palette")}
+        maxResults={paletteMode === "files" ? 12 : 20}
+        onItemSelect={
+          paletteMode === "files" ? handleQuickOpenSelect : undefined
+        }
         onOpenChange={(open) => setPaletteMode(open ? paletteMode : null)}
         open={paletteMode !== null}
         placeholder={paletteMode === "files" ? t("Open a file…") : t("Type a command…")}
+        renderItemIcon={
+          paletteMode === "files" ? renderQuickOpenIcon : undefined
+        }
+      />
+
+      <EntryNameDialog
+        busy={entryOperationBusy}
+        entryKind={entryNameRequest?.entryKind}
+        error={entryNameError}
+        initialValue={entryNameRequest?.initialValue}
+        mode={entryNameRequest?.mode ?? "new-file"}
+        onCancel={() => {
+          if (entryOperationBusy) return;
+          setEntryNameRequest(null);
+          setEntryNameError(null);
+        }}
+        onSubmit={(name) => void submitEntryName(name)}
+        onValueChange={() => setEntryNameError(null)}
+        open={Boolean(entryNameRequest)}
+      />
+
+      <DuplicateEntryDialog
+        busy={entryOperationBusy}
+        dirty={Boolean(pendingDuplicate)}
+        entryName={pendingDuplicate?.name ?? ""}
+        error={entryOperationError}
+        onCancel={() => {
+          if (!entryOperationBusy) {
+            setPendingDuplicate(null);
+            setEntryOperationError(null);
+          }
+        }}
+        onSaveAndDuplicate={() => {
+          if (pendingDuplicate) void performDuplicate(pendingDuplicate, true);
+        }}
+        open={Boolean(pendingDuplicate)}
+      />
+
+      <MoveToTrashDialog
+        busy={entryOperationBusy}
+        dirty={Boolean(pendingTrash?.affectedDirtyDocumentIds.length)}
+        entryName={pendingTrash?.name ?? ""}
+        error={entryOperationError}
+        onCancel={() => {
+          if (!entryOperationBusy) {
+            setPendingTrash(null);
+            setEntryOperationError(null);
+          }
+        }}
+        onMoveToTrash={() => void performMoveToTrash()}
+        open={Boolean(pendingTrash)}
+        openDocumentCount={pendingTrash?.affectedDocumentIds.length ?? 0}
       />
 
       <UnsavedChangesDialog

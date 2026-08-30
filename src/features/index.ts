@@ -1,6 +1,7 @@
 export * from "./appearance";
 export * from "./editor";
 export * from "./explorer";
+export * from "./find";
 export * from "./history";
 export * from "./live";
 export * from "./media";

@@ -320,3 +320,16 @@ export function scrollTopForSourceLine(
   const clampedLine = Math.max(1, Math.min(lineCount, sourceLine));
   return ((clampedLine - 1) / (lineCount - 1)) * maxScroll;
 }
+
+export function typewriterScrollTop(
+  caretTop: number,
+  caretHeight: number,
+  scrollHeight: number,
+  clientHeight: number,
+): number {
+  const maxScroll = Math.max(0, scrollHeight - clientHeight);
+  if (maxScroll === 0) return 0;
+
+  const centered = caretTop + caretHeight / 2 - clientHeight / 2;
+  return Math.max(0, Math.min(maxScroll, centered));
+}

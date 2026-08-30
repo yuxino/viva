@@ -7,6 +7,8 @@ export type NativeMenuCommand =
   | "app.quit"
   | "edit.redo"
   | "edit.undo"
+  | "edit.find"
+  | "edit.replace"
   | "file.new"
   | "file.newWindow"
   | "file.open"
