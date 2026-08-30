@@ -187,12 +187,16 @@ mod windows_rename_diagnostic {
     use std::mem::size_of;
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Wdk::Storage::FileSystem::{
+        FILE_RENAME_INFORMATION, FileRenameInformation, NtSetInformationFile,
+    };
+    use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, RtlNtStatusToDosError};
     use windows_sys::Win32::Storage::FileSystem::{
         DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_RENAME_INFO,
         FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FileRenameInfo,
         ReOpenFile, SYNCHRONIZE, SetFileInformationByHandle,
     };
+    use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
     fn attempt(dir: &Dir, source_name: &str, destination_name: &str, share: u32) -> String {
         dir.write(source_name, b"diagnostic").unwrap();
@@ -255,6 +259,64 @@ mod windows_rename_diagnostic {
         }
     }
 
+    fn attempt_nt(
+        dir: &Dir,
+        source_name: &str,
+        destination_name: &str,
+        share: u32,
+        use_directory_root: bool,
+    ) -> String {
+        dir.write(source_name, b"diagnostic").unwrap();
+        let mut options = OpenOptions::new();
+        options
+            .read(true)
+            .access_mode(DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE)
+            .share_mode(share)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+        let source = dir.open_with(source_name, &options).unwrap();
+        let wide_name: Vec<u16> = std::ffi::OsStr::new(destination_name)
+            .encode_wide()
+            .collect();
+        let name_bytes = wide_name.len() * size_of::<u16>();
+        let buffer_bytes = size_of::<FILE_RENAME_INFORMATION>() + name_bytes;
+        let mut buffer = vec![0_usize; buffer_bytes.div_ceil(size_of::<usize>())];
+        let information = buffer.as_mut_ptr().cast::<FILE_RENAME_INFORMATION>();
+        unsafe {
+            (*information).Anonymous.ReplaceIfExists = false;
+            (*information).RootDirectory = if use_directory_root {
+                dir.as_raw_handle() as _
+            } else {
+                std::ptr::null_mut()
+            };
+            (*information).FileNameLength = name_bytes as u32;
+            std::ptr::copy_nonoverlapping(
+                wide_name.as_ptr(),
+                (*information).FileName.as_mut_ptr(),
+                wide_name.len(),
+            );
+        }
+        let mut io_status = IO_STATUS_BLOCK::default();
+        let status = unsafe {
+            NtSetInformationFile(
+                source.as_raw_handle() as _,
+                &mut io_status,
+                information.cast(),
+                buffer_bytes as u32,
+                FileRenameInformation,
+            )
+        };
+        if status < 0 {
+            let error = unsafe { RtlNtStatusToDosError(status) };
+            format!(
+                "Err(status=0x{:08x}, {:?})",
+                status as u32,
+                std::io::Error::from_raw_os_error(error as i32)
+            )
+        } else {
+            format!("Ok(status=0x{:08x})", status as u32)
+        }
+    }
+
     #[test]
     fn reports_root_reopen_and_source_share_requirements() {
         let temp = tempfile::tempdir().unwrap();
@@ -299,9 +361,37 @@ mod windows_rename_diagnostic {
             "same-parent-with-delete-share-renamed.md",
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         );
+        let nt_same_parent_without_delete_share = attempt_nt(
+            &dir,
+            "nt-same-parent-without-delete-share.md",
+            "nt-same-parent-without-delete-share-renamed.md",
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            false,
+        );
+        let nt_same_parent_with_delete_share = attempt_nt(
+            &dir,
+            "nt-same-parent-with-delete-share.md",
+            "nt-same-parent-with-delete-share-renamed.md",
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            false,
+        );
+        let nt_direct_root_without_delete_share = attempt_nt(
+            &dir,
+            "nt-direct-root-without-delete-share.md",
+            "nt-direct-root-without-delete-share-renamed.md",
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            true,
+        );
+        let nt_direct_root_with_delete_share = attempt_nt(
+            &dir,
+            "nt-direct-root-with-delete-share.md",
+            "nt-direct-root-with-delete-share-renamed.md",
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            true,
+        );
 
         panic!(
-            "Windows rename diagnostic: root_reopen={root_result}; relative_without_delete_share={without_delete_share}; relative_with_delete_share={with_delete_share}; same_parent_without_delete_share={same_parent_without_delete_share}; same_parent_with_delete_share={same_parent_with_delete_share}"
+            "Windows rename diagnostic: root_reopen={root_result}; relative_without_delete_share={without_delete_share}; relative_with_delete_share={with_delete_share}; same_parent_without_delete_share={same_parent_without_delete_share}; same_parent_with_delete_share={same_parent_with_delete_share}; nt_same_parent_without_delete_share={nt_same_parent_without_delete_share}; nt_same_parent_with_delete_share={nt_same_parent_with_delete_share}; nt_direct_root_without_delete_share={nt_direct_root_without_delete_share}; nt_direct_root_with_delete_share={nt_direct_root_with_delete_share}"
         );
     }
 }
