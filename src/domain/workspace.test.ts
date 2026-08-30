@@ -19,6 +19,7 @@ const first: DocumentSnapshot = {
   relativePath: "one.md",
   name: "one.md",
   content: "one",
+  lineEnding: "lf",
   revision: { modifiedAtMs: 1, sizeBytes: 3, contentSha256: "a".repeat(64) },
 };
 
@@ -26,6 +27,7 @@ const second: DocumentSnapshot = {
   relativePath: "two.md",
   name: "two.md",
   content: "two",
+  lineEnding: "lf",
   revision: { modifiedAtMs: 2, sizeBytes: 3, contentSha256: "b".repeat(64) },
 };
 
@@ -75,6 +77,39 @@ describe("workspaceReducer", () => {
     expect(isDocumentDirty(state.documents["copy.md"])).toBe(false);
   });
 
+  it("does not mark normalized CRLF content dirty", () => {
+    const crlfSnapshot: DocumentSnapshot = {
+      ...first,
+      content: "first\nsecond\n",
+      lineEnding: "crlf",
+    };
+    const state = workspaceReducer(initialWorkspaceState, {
+      type: "document/opened",
+      snapshot: crlfSnapshot,
+    });
+
+    expect(state.documents["one.md"]?.content).toBe("first\nsecond\n");
+    expect(state.documents["one.md"]?.savedContent).toBe("first\nsecond\n");
+    expect(state.documents["one.md"]?.lineEnding).toBe("crlf");
+    expect(isDocumentDirty(state.documents["one.md"])).toBe(false);
+
+    const changedLineEnding = workspaceReducer(state, {
+      type: "document/changed",
+      id: "one.md",
+      content: "first\nsecond\n",
+      lineEnding: "lf",
+    });
+    expect(changedLineEnding.documents["one.md"]?.savedLineEnding).toBe("crlf");
+    expect(isDocumentDirty(changedLineEnding.documents["one.md"])).toBe(true);
+
+    const saved = workspaceReducer(changedLineEnding, {
+      type: "document/saved",
+      previousId: "one.md",
+      snapshot: { ...crlfSnapshot, lineEnding: "lf" },
+    });
+    expect(isDocumentDirty(saved.documents["one.md"])).toBe(false);
+  });
+
   it("selects the next available tab when the active tab closes", () => {
     let state = workspaceReducer(initialWorkspaceState, {
       type: "document/opened",
@@ -104,6 +139,28 @@ describe("workspaceReducer", () => {
 
     expect(state.documents["one.md"]?.content).toBe("newer than the save");
     expect(state.documents["one.md"]?.savedContent).toBe("content sent to disk");
+    expect(isDocumentDirty(state.documents["one.md"])).toBe(true);
+  });
+
+  it("does not erase a newer line-ending choice while a save is finishing", () => {
+    let state = workspaceReducer(initialWorkspaceState, {
+      type: "document/opened",
+      snapshot: first,
+    });
+    state = workspaceReducer(state, {
+      type: "document/changed",
+      id: "one.md",
+      content: first.content,
+      lineEnding: "crlf",
+    });
+    state = workspaceReducer(state, {
+      type: "document/saved",
+      previousId: "one.md",
+      snapshot: first,
+    });
+
+    expect(state.documents["one.md"]?.lineEnding).toBe("crlf");
+    expect(state.documents["one.md"]?.savedLineEnding).toBe("lf");
     expect(isDocumentDirty(state.documents["one.md"])).toBe(true);
   });
 

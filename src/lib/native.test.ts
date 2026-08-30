@@ -37,6 +37,51 @@ describe("native quit state protocol", () => {
     );
   });
 
+  it("sends the document line ending through write and Save As", async () => {
+    nativeMocks.invoke.mockResolvedValue(undefined);
+    const native = await import("./native");
+    const revision = {
+      modifiedAtMs: 7,
+      sizeBytes: 15,
+      contentSha256: "a".repeat(64),
+    };
+    const document = {
+      relativePath: "windows.md",
+      name: "windows.md",
+      content: "first\nsecond\n",
+      lineEnding: "crlf" as const,
+      revision,
+    };
+
+    await native.writeDocument("C:\\Notes", document);
+    await native.saveDocumentAs(
+      "C:\\Notes",
+      "C:\\Notes\\copy.md",
+      document.content,
+      document.lineEnding,
+      revision,
+    );
+
+    expect(nativeMocks.invoke).toHaveBeenNthCalledWith(1, "write_document", {
+      request: {
+        workspaceRoot: "C:\\Notes",
+        relativePath: "windows.md",
+        content: "first\nsecond\n",
+        lineEnding: "crlf",
+        expectedRevision: revision,
+      },
+    });
+    expect(nativeMocks.invoke).toHaveBeenNthCalledWith(2, "save_document_as", {
+      request: {
+        workspaceRoot: "C:\\Notes",
+        destinationPath: "C:\\Notes\\copy.md",
+        content: "first\nsecond\n",
+        lineEnding: "crlf",
+        expectedDestinationRevision: revision,
+      },
+    });
+  });
+
   it("uses one native-issued session and monotonic renderer sequences", async () => {
     nativeMocks.invoke.mockImplementation((command: string) => {
       if (command === "get_quit_guard_session") return Promise.resolve(17);

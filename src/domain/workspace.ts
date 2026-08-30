@@ -19,16 +19,20 @@ export interface FileRevision {
   contentSha256: string;
 }
 
+export type LineEnding = "lf" | "crlf";
+
 export interface DocumentSnapshot {
   relativePath: string;
   name: string;
   content: string;
+  lineEnding: LineEnding;
   revision: FileRevision;
   historyWarningCode?: "HISTORY_UNAVAILABLE";
 }
 
 export interface OpenDocument extends DocumentSnapshot {
   savedContent: string;
+  savedLineEnding: LineEnding;
 }
 
 export type ViewMode = "live" | "edit" | "split" | "preview";
@@ -67,7 +71,12 @@ export type WorkspaceAction =
     }
   | { type: "document/opened"; snapshot: DocumentSnapshot }
   | { type: "document/activated"; id: string }
-  | { type: "document/changed"; id: string; content: string }
+  | {
+      type: "document/changed";
+      id: string;
+      content: string;
+      lineEnding?: LineEnding;
+    }
   | {
       type: "document/saved";
       previousId: string;
@@ -81,7 +90,11 @@ export type WorkspaceAction =
   | { type: "view/selected"; viewMode: ViewMode };
 
 function openDocument(snapshot: DocumentSnapshot): OpenDocument {
-  return { ...snapshot, savedContent: snapshot.content };
+  return {
+    ...snapshot,
+    savedContent: snapshot.content,
+    savedLineEnding: snapshot.lineEnding,
+  };
 }
 
 export function workspaceReducer(
@@ -122,12 +135,19 @@ export function workspaceReducer(
         : state;
     case "document/changed": {
       const document = state.documents[action.id];
-      if (!document || document.content === action.content) return state;
+      if (!document) return state;
+      const lineEnding = action.lineEnding ?? document.lineEnding;
+      if (
+        document.content === action.content &&
+        document.lineEnding === lineEnding
+      ) {
+        return state;
+      }
       return {
         ...state,
         documents: {
           ...state.documents,
-          [action.id]: { ...document, content: action.content },
+          [action.id]: { ...document, content: action.content, lineEnding },
         },
       };
     }
@@ -139,7 +159,9 @@ export function workspaceReducer(
       const nextDocument: OpenDocument = {
         ...action.snapshot,
         content: currentDocument.content,
+        lineEnding: currentDocument.lineEnding,
         savedContent: action.snapshot.content,
+        savedLineEnding: action.snapshot.lineEnding,
       };
       const documents = { ...state.documents };
       delete documents[action.previousId];
@@ -196,7 +218,11 @@ export function workspaceReducer(
 }
 
 export function isDocumentDirty(document: OpenDocument | undefined): boolean {
-  return Boolean(document && document.content !== document.savedContent);
+  return Boolean(
+    document &&
+      (document.content !== document.savedContent ||
+        document.lineEnding !== document.savedLineEnding),
+  );
 }
 
 export function hasDirtyDocuments(state: WorkspaceState): boolean {

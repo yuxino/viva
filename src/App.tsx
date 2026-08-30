@@ -43,6 +43,7 @@ import {
   flattenImages,
   isDocumentDirty,
   type FileTreeNode,
+  type LineEnding,
   type ViewMode,
 } from "./domain/workspace";
 import {
@@ -65,6 +66,7 @@ import {
   offsetAtPosition,
   positionAtOffset,
   type EditorPosition,
+  type HistoryEntry,
   type ImageViewerSource,
   type TextSelection,
 } from "./features";
@@ -106,6 +108,7 @@ interface PendingHistoryLoad {
   content: string;
   documentId: string;
   documentName: string;
+  lineEnding: LineEnding;
   versionLabel: string;
 }
 
@@ -887,9 +890,13 @@ export function App() {
   );
 
   const requestHistoryLoad = useCallback(
-    (entry: { content?: string; label: string }) => {
+    (entry: HistoryEntry) => {
       if (!currentDocument || entry.content === undefined) return;
-      if (entry.content === currentDocument.content) {
+      const lineEnding = entry.lineEnding ?? currentDocument.lineEnding;
+      if (
+        entry.content === currentDocument.content &&
+        lineEnding === currentDocument.lineEnding
+      ) {
         setWorkbenchSurface("document");
         return;
       }
@@ -898,11 +905,16 @@ export function App() {
           content: entry.content,
           documentId: currentDocument.relativePath,
           documentName: currentDocument.name,
+          lineEnding,
           versionLabel: entry.label,
         });
         return;
       }
-      controller.changeDocument(currentDocument.relativePath, entry.content);
+      controller.changeDocument(
+        currentDocument.relativePath,
+        entry.content,
+        lineEnding,
+      );
       setWorkbenchSurface("document");
     },
     [controller.changeDocument, currentDocument],
@@ -913,6 +925,7 @@ export function App() {
     controller.changeDocument(
       pendingHistoryLoad.documentId,
       pendingHistoryLoad.content,
+      pendingHistoryLoad.lineEnding,
     );
     controller.activateDocument(pendingHistoryLoad.documentId);
     setPendingHistoryLoad(null);

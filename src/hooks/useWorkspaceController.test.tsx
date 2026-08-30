@@ -40,6 +40,7 @@ const noteSnapshot = (
   relativePath: "note.md",
   name: "note.md",
   content,
+  lineEnding: "lf",
   revision: {
     modifiedAtMs: content.length,
     sizeBytes: content.length,
@@ -167,6 +168,7 @@ describe("useWorkspaceController search", () => {
       relativePath: "note.md",
       name: "note.md",
       content: "changed",
+      lineEnding: "lf",
       revision: { modifiedAtMs: 2, sizeBytes: 7, contentSha256: "b".repeat(64) },
       historyWarningCode: "HISTORY_UNAVAILABLE" as const,
     };
@@ -264,6 +266,41 @@ describe("useWorkspaceController workspace isolation", () => {
       message: "Saved locally",
       tone: "neutral",
     });
+  });
+
+  it("keeps a newer line-ending choice dirty when an earlier save finishes", async () => {
+    const pendingSave = deferred<DocumentSnapshot>();
+    nativeMocks.openWorkspace.mockResolvedValue(workspace("/one", "One"));
+    nativeMocks.readDocument.mockResolvedValue(noteSnapshot("original", "a"));
+    nativeMocks.writeDocument.mockReturnValue(pendingSave.promise);
+    const result = renderHook(() => useWorkspaceController());
+    await act(async () => {
+      await result.result.current.openRecentWorkspace("/one");
+    });
+    await act(async () => {
+      await result.result.current.openDocument("note.md");
+    });
+    act(() => result.result.current.changeDocument("note.md", "changed"));
+
+    let savePromise!: Promise<boolean>;
+    act(() => {
+      savePromise = result.result.current.saveDocument("note.md");
+    });
+    act(() => {
+      result.result.current.changeDocument("note.md", "changed", "crlf");
+    });
+
+    let didSave = true;
+    await act(async () => {
+      pendingSave.resolve(noteSnapshot("changed", "b"));
+      didSave = await savePromise;
+    });
+
+    expect(didSave).toBe(false);
+    expect(result.result.current.currentDocument?.lineEnding).toBe("crlf");
+    expect(result.result.current.currentDocument?.savedLineEnding).toBe("lf");
+    expect(result.result.current.dirty).toBe(true);
+    expect(result.result.current.status.message).toBe("New changes are not saved");
   });
 
   it("returns control when a workspace scan does not finish", async () => {
@@ -404,7 +441,10 @@ describe("useWorkspaceController workspace isolation", () => {
   });
 
   it("passes the inspected destination revision when replacing via Save As", async () => {
-    const source = noteSnapshot("source", "a");
+    const source = {
+      ...noteSnapshot("source", "a"),
+      lineEnding: "crlf" as const,
+    };
     const destinationRevision = {
       modifiedAtMs: 9,
       sizeBytes: 8,
@@ -440,6 +480,7 @@ describe("useWorkspaceController workspace isolation", () => {
       "/one",
       "/one/copy.md",
       "source",
+      "crlf",
       destinationRevision,
     );
     expect(result.result.current.state.documents["note.md"]).toBeUndefined();

@@ -4,6 +4,7 @@ import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
   DocumentSnapshot,
   FileRevision,
+  LineEnding,
   WorkspaceTree,
 } from "../domain/workspace";
 import type { TranslationKey } from "../i18n";
@@ -25,6 +26,7 @@ export interface DocumentHistorySnapshot extends DocumentHistoryEntry {
   relativePath: string;
   name: string;
   content: string;
+  lineEnding: LineEnding;
 }
 
 interface OpenWorkspaceRequest {
@@ -38,6 +40,7 @@ interface DocumentRequest {
 
 interface WriteDocumentRequest extends DocumentRequest {
   content: string;
+  lineEnding: LineEnding;
   expectedRevision: FileRevision;
 }
 
@@ -45,6 +48,7 @@ interface SaveDocumentAsRequest {
   workspaceRoot: string;
   destinationPath: string;
   content: string;
+  lineEnding: LineEnding;
   expectedDestinationRevision?: FileRevision;
 }
 
@@ -186,6 +190,7 @@ export function writeDocument(
     workspaceRoot,
     relativePath: document.relativePath,
     content: document.content,
+    lineEnding: document.lineEnding,
     expectedRevision: document.revision,
   };
   return invoke("write_document", { request });
@@ -195,12 +200,14 @@ export function saveDocumentAs(
   workspaceRoot: string,
   destinationPath: string,
   content: string,
+  lineEnding: LineEnding,
   expectedDestinationRevision?: FileRevision,
 ): Promise<DocumentSnapshot> {
   const request: SaveDocumentAsRequest = {
     workspaceRoot,
     destinationPath,
     content,
+    lineEnding,
     expectedDestinationRevision,
   };
   return invoke("save_document_as", { request });

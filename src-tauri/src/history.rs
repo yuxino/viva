@@ -2,7 +2,7 @@ use crate::filesystem::{HistoryDocument, MAX_DOCUMENT_BYTES, resolve_history_doc
 use crate::locking::CrossProcessLock;
 use crate::models::{
     CommandError, CommandResult, DocumentHistoryEntry, DocumentHistorySnapshot, ErrorCode,
-    ListDocumentHistoryRequest, ReadDocumentHistoryRequest,
+    LineEnding, ListDocumentHistoryRequest, ReadDocumentHistoryRequest,
 };
 use crate::runtime::run_blocking;
 use serde::{Deserialize, Serialize};
@@ -228,17 +228,19 @@ impl HistoryStore {
             .existing_document_directory(document)?
             .ok_or_else(history_not_found_error)?;
         let metadata = read_stored_metadata(&metadata_path(&directory, version_id)?, version_id)?;
-        let content = read_and_verify_snapshot(
+        let raw_content = read_and_verify_snapshot(
             &snapshot_path(&directory, version_id)?,
             version_id,
             metadata.size_bytes,
         )?;
+        let line_ending = LineEnding::detect(&raw_content);
 
         Ok(DocumentHistorySnapshot {
             version_id: metadata.version_id,
             relative_path: document.relative_path.clone(),
             name: document.name.clone(),
-            content,
+            content: LineEnding::normalize(&raw_content),
+            line_ending,
             created_at_ms: metadata.created_at_ms,
             size_bytes: metadata.size_bytes,
         })
@@ -1133,6 +1135,25 @@ mod tests {
         assert_eq!(
             fs::read_to_string(workspace.path().join("notes/a.md")).unwrap(),
             "current"
+        );
+    }
+
+    #[test]
+    fn returns_crlf_history_as_lf_editor_content() {
+        let workspace = tempdir().unwrap();
+        let app_data = tempdir().unwrap();
+        let document = history_document(&workspace, "windows.md");
+        let store = test_store(&app_data);
+
+        let version = store.record(&document, "first\r\nsecond\r\n").unwrap();
+        let snapshot = store.read(&document, &version.version_id).unwrap();
+
+        assert_eq!(snapshot.content, "first\nsecond\n");
+        assert_eq!(snapshot.line_ending, LineEnding::Crlf);
+        assert_eq!(snapshot.size_bytes, 15);
+        assert_eq!(
+            serde_json::to_value(&snapshot).unwrap()["lineEnding"],
+            "crlf"
         );
     }
 
