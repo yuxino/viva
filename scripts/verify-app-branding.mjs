@@ -175,6 +175,40 @@ function verifyIco(path) {
   }
 }
 
+function verifyMacIcns(path) {
+  const buffer = readFileSync(path);
+  if (buffer.subarray(0, 4).toString("ascii") !== "icns") {
+    fail("icon.icns: invalid header");
+  }
+  if (buffer.readUInt32BE(4) !== buffer.length) {
+    fail("icon.icns: invalid container length");
+  }
+
+  let offset = 8;
+  let representation;
+  while (offset + 8 <= buffer.length) {
+    const type = buffer.subarray(offset, offset + 4).toString("ascii");
+    const length = buffer.readUInt32BE(offset + 4);
+    if (length < 8 || offset + length > buffer.length) {
+      fail(`icon.icns: invalid ${type} representation`);
+    }
+    if (type === "ic10") {
+      representation = buffer.subarray(offset + 8, offset + length);
+      break;
+    }
+    offset += length;
+  }
+
+  if (!representation) fail("icon.icns: missing 1024x1024 representation");
+  const decoded = decodePngAlpha(representation, "icon.icns:ic10");
+  if (decoded.size !== 1024) {
+    fail(`icon.icns: expected 1024x1024 representation, got ${decoded.size}x${decoded.size}`);
+  }
+  if (decoded.alpha.some((value) => value !== 255)) {
+    fail("icon.icns: macOS artwork must fill the canvas without transparent outer padding");
+  }
+}
+
 const config = JSON.parse(readFileSync(join(repoRoot, "src-tauri", "tauri.conf.json"), "utf8"));
 const windowsConfig = JSON.parse(
   readFileSync(join(repoRoot, "src-tauri", "tauri.windows.conf.json"), "utf8"),
@@ -199,13 +233,17 @@ if (nsis?.installMode !== "currentUser") {
 if (!config.bundle?.icon?.includes("icons/icon.ico")) {
   fail("tauri.conf.json: bundle.icon must include icons/icon.ico");
 }
+if (!config.bundle?.icon?.includes("icons/icon.icns")) {
+  fail("tauri.conf.json: bundle.icon must include icons/icon.icns");
+}
 
 verifyPng(join(iconDir, "app-icon-source.png"), "app-icon-source.png");
 verifyPng(join(iconDir, "32x32.png"), "32x32.png", 32);
 verifyPng(join(iconDir, "128x128.png"), "128x128.png", 128);
 verifyPng(join(iconDir, "128x128@2x.png"), "128x128@2x.png", 256);
 verifyIco(join(iconDir, "icon.ico"));
+verifyMacIcns(join(iconDir, "icon.icns"));
 
 console.log(
-  `Windows branding verified for ${expectedName}: capitalized product identity, current-user NSIS, and transparent rounded PNG/ICO assets.`,
+  `Branding verified for ${expectedName}: full-canvas macOS ICNS, transparent rounded Windows PNG/ICO assets, and current-user NSIS.`,
 );
