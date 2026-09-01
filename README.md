@@ -31,6 +31,7 @@ you need a different view.
 - Search the whole workspace, follow the document outline, and recover earlier saves.
 - Find and replace in the current document, and paste images into local `assets/` with relative paths.
 - Read Dart, TypeScript, and other fenced code with built-in syntax highlighting.
+- Preserve each document's LF or CRLF line endings across editing, Save As, and history restores.
 - Keep unsaved work visible and protected across tabs, windows, and native quit flows.
 - Choose a calm light or graphite-dark workspace, with an optional local background.
 
