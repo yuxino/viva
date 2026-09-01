@@ -5,6 +5,7 @@
 - Remove an unused custom menu implementation and seven unreferenced icon components.
 - Remove the unused JavaScript window-state package while retaining Viva's active native Rust window-state integration.
 - Use Markdown It's bundled TypeScript declarations instead of a redundant external type package.
+- Strip unused symbol tables from release binaries to reduce installer size without removing application resources.
 - Retain the focused Windows CRLF, capability-bound rename, quit-protection, and installer regression coverage.
 
 ## Downloads

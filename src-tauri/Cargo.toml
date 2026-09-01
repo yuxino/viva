@@ -12,6 +12,9 @@ rust-version = "1.85"
 name = "viva_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[profile.release]
+strip = "symbols"
+
 [build-dependencies]
 tauri-build = { version = "=2.6.3", features = [] }
 
