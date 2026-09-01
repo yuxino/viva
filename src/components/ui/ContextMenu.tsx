@@ -11,14 +11,25 @@ import {
   type KeyboardEventHandler,
   type MouseEventHandler,
   type ReactElement,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { isTauri } from "@tauri-apps/api/core";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { Menu as NativeMenu, type MenuOptions } from "@tauri-apps/api/menu";
-import type { MenuItem } from "./Menu";
 import { cx } from "./utils";
 import "./ui.css";
+
+export interface MenuItem {
+  danger?: boolean;
+  disabled?: boolean;
+  icon?: ReactNode;
+  id: string;
+  label: string;
+  onSelect: () => void;
+  separatorBefore?: boolean;
+  shortcut?: string;
+}
 
 interface ContextMenuTriggerProps {
   onContextMenu?: MouseEventHandler<HTMLElement>;

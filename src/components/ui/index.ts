@@ -7,7 +7,7 @@ export type {
   CommandPaletteProps,
 } from "./CommandPalette";
 export { ContextMenu } from "./ContextMenu";
-export type { ContextMenuProps } from "./ContextMenu";
+export type { ContextMenuProps, MenuItem } from "./ContextMenu";
 export { Dialog } from "./Dialog";
 export type {
   DialogCloseReason,
@@ -17,8 +17,6 @@ export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 export { IconButton } from "./IconButton";
 export type { IconButtonProps } from "./IconButton";
-export { Menu } from "./Menu";
-export type { MenuItem, MenuProps } from "./Menu";
 export { SegmentedControl } from "./SegmentedControl";
 export type {
   SegmentedControlProps,

@@ -1,6 +1,6 @@
 [package]
 name = "viva"
-version = "2.0.3"
+version = "2.0.4"
 description = "A quiet local workspace for Markdown"
 authors = ["Yuxino"]
 license = "MIT"

@@ -1,10 +1,7 @@
 export { Icon } from "./Icon";
 export type { IconProps } from "./Icon";
 export {
-  ArrowRightIcon,
   CheckIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
   CloseIcon,
   CommandIcon,
   EditIcon,
@@ -14,16 +11,12 @@ export {
   FolderOpenIcon,
   HistoryIcon,
   ImageIcon,
-  InfoIcon,
   LiveIcon,
-  MoreIcon,
   OutlineIcon,
   PlusIcon,
   PreviewIcon,
-  SaveIcon,
   SearchIcon,
   SettingsIcon,
   SidebarIcon,
   SplitIcon,
-  WarningIcon,
 } from "./icons";

@@ -191,8 +191,7 @@
   pointer-events: none;
 }
 
-.viva-tooltip-anchor,
-.viva-menu-anchor {
+.viva-tooltip-anchor {
   display: inline-flex;
   min-width: 0;
 }

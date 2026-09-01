@@ -123,36 +123,10 @@ export function ImageIcon(props: IconProps) {
   );
 }
 
-export function ChevronRightIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="m7.5 5 5 5-5 5" />
-    </Icon>
-  );
-}
-
-export function ChevronDownIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="m5 7.5 5 5 5-5" />
-    </Icon>
-  );
-}
-
 export function CloseIcon(props: IconProps) {
   return (
     <Icon {...props}>
       <path d="m5 5 10 10M15 5 5 15" />
-    </Icon>
-  );
-}
-
-export function MoreIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <circle cx="4" cy="10" r="1" fill="currentColor" stroke="none" />
-      <circle cx="10" cy="10" r="1" fill="currentColor" stroke="none" />
-      <circle cx="16" cy="10" r="1" fill="currentColor" stroke="none" />
     </Icon>
   );
 }
@@ -177,41 +151,6 @@ export function PlusIcon(props: IconProps) {
   return (
     <Icon {...props}>
       <path d="M10 3.5v13M3.5 10h13" />
-    </Icon>
-  );
-}
-
-export function WarningIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M8.55 3.55 2.3 14.4a1.45 1.45 0 0 0 1.25 2.18h12.9a1.45 1.45 0 0 0 1.25-2.18L11.45 3.55a1.67 1.67 0 0 0-2.9 0Z" />
-      <path d="M10 7v4.25M10 14.2v.05" />
-    </Icon>
-  );
-}
-
-export function InfoIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <circle cx="10" cy="10" r="7" />
-      <path d="M10 9v5M10 6.25v.05" />
-    </Icon>
-  );
-}
-
-export function ArrowRightIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M3.5 10h13M12 5.5l4.5 4.5-4.5 4.5" />
-    </Icon>
-  );
-}
-
-export function SaveIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M3.5 3.5h11l2 2v11h-13v-13Z" />
-      <path d="M6 3.5v4h7v-4M6.5 16.5v-5h7v5" />
     </Icon>
   );
 }
