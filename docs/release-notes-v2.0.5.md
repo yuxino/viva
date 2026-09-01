@@ -1,11 +1,9 @@
-# Viva 2.0.4
+# Viva 2.0.5
 
 ## Maintenance
 
-- Remove an unused custom menu implementation and seven unreferenced icon components.
-- Remove the unused JavaScript window-state package while retaining Viva's active native Rust window-state integration.
-- Use Markdown It's bundled TypeScript declarations instead of a redundant external type package.
-- Retain the focused Windows CRLF, capability-bound rename, quit-protection, and installer regression coverage.
+- Strip unused symbol tables from release binaries to reduce installer size without removing application resources.
+- Keep the editor behavior and focused Windows CRLF, capability-bound rename, quit-protection, and installer regression coverage unchanged from 2.0.4.
 
 ## Downloads
 
