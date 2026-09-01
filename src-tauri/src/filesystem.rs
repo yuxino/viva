@@ -4993,6 +4993,57 @@ mod tests {
     }
 
     #[test]
+    fn mixed_and_lone_cr_documents_normalize_to_lf_on_save() {
+        let cases: [(&str, &[u8], &str); 2] = [
+            (
+                "mixed.md",
+                b"first\r\nsecond\nthird\rfourth\r\n",
+                "first\nsecond\nthird\nfourth\n",
+            ),
+            ("lone-cr.md", b"first\rsecond\r", "first\nsecond\n"),
+        ];
+
+        for (relative_path, raw_content, normalized_content) in cases {
+            let workspace = tempdir().unwrap();
+            let path = workspace.path().join(relative_path);
+            write_fixture(&workspace, relative_path, raw_content);
+
+            let opened = read_document_core(DocumentPathRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: relative_path.to_owned(),
+            })
+            .unwrap();
+
+            assert_eq!(opened.content, normalized_content);
+            assert_eq!(opened.line_ending, LineEnding::Lf);
+            assert_eq!(opened.revision.size_bytes, raw_content.len() as u64);
+            assert_eq!(opened.revision.content_sha256, sha256_hex(raw_content));
+
+            let saved = write_document_core(WriteDocumentRequest {
+                workspace_root: root_string(&workspace),
+                relative_path: relative_path.to_owned(),
+                content: opened.content,
+                line_ending: opened.line_ending,
+                expected_revision: opened.revision,
+            })
+            .unwrap();
+
+            assert_eq!(fs::read(&path).unwrap(), normalized_content.as_bytes());
+            assert_eq!(saved.snapshot.content, normalized_content);
+            assert_eq!(saved.snapshot.line_ending, LineEnding::Lf);
+            assert_eq!(
+                saved.snapshot.revision.size_bytes,
+                normalized_content.len() as u64
+            );
+            assert_eq!(
+                saved.snapshot.revision.content_sha256,
+                sha256_hex(normalized_content.as_bytes())
+            );
+            assert_eq!(saved.persisted_content, normalized_content);
+        }
+    }
+
+    #[test]
     fn rejects_oversized_input_and_crlf_expansion() {
         let oversized_input = "x".repeat((MAX_DOCUMENT_BYTES + 1) as usize);
         let input_error = encode_content_with_limit(&oversized_input, LineEnding::Crlf)
