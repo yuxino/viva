@@ -53,6 +53,8 @@ const sourceDocument = {
   name: "source.md",
   content: "source",
   savedContent: "source",
+  lineEnding: "lf" as const,
+  savedLineEnding: "lf" as const,
   revision: { modifiedAtMs: 1, sizeBytes: 6, contentSha256: "a".repeat(64) },
 };
 
@@ -61,6 +63,8 @@ const targetDocument = {
   name: "target.md",
   content: "one\n你🙂needle",
   savedContent: "one\n你🙂needle",
+  lineEnding: "lf" as const,
+  savedLineEnding: "lf" as const,
   revision: { modifiedAtMs: 2, sizeBytes: 16, contentSha256: "b".repeat(64) },
 };
 
@@ -1778,6 +1782,7 @@ describe("App search navigation", () => {
           label: "Yesterday, 18:04",
           description: "Before editing",
           content: "historical text",
+          lineEnding: "crlf",
         },
       ],
       selectedEntry: {
@@ -1785,6 +1790,7 @@ describe("App search navigation", () => {
         label: "Yesterday, 18:04",
         description: "Before editing",
         content: "historical text",
+        lineEnding: "crlf",
       },
       selectedId: "older",
     };
@@ -1817,6 +1823,7 @@ describe("App search navigation", () => {
     expect(controller.changeDocument).toHaveBeenCalledWith(
       "source.md",
       "historical text",
+      "crlf",
     );
   });
 

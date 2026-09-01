@@ -125,10 +125,14 @@ export function useDocumentHistory(
         setEntries((current) =>
           current.map((entry) =>
             entry.id === snapshot.versionId
-              ? { ...entry, content: snapshot.content }
+              ? {
+                  ...entry,
+                  content: snapshot.content,
+                  lineEnding: snapshot.lineEnding,
+                }
               : entry.content === undefined
                 ? entry
-                : { ...entry, content: undefined },
+                : { ...entry, content: undefined, lineEnding: undefined },
           ),
         );
       } catch (historyError) {
@@ -180,7 +184,7 @@ export function useDocumentHistory(
         current.map((entry) =>
           entry.id === versionId || entry.content === undefined
             ? entry
-            : { ...entry, content: undefined },
+            : { ...entry, content: undefined, lineEnding: undefined },
         ),
       );
       setError(null);

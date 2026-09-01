@@ -2,7 +2,7 @@ use crate::filesystem::{HistoryDocument, MAX_DOCUMENT_BYTES, resolve_history_doc
 use crate::locking::CrossProcessLock;
 use crate::models::{
     CommandError, CommandResult, DocumentHistoryEntry, DocumentHistorySnapshot, ErrorCode,
-    ListDocumentHistoryRequest, ReadDocumentHistoryRequest,
+    LineEnding, ListDocumentHistoryRequest, ReadDocumentHistoryRequest,
 };
 use crate::runtime::run_blocking;
 use serde::{Deserialize, Serialize};
@@ -234,11 +234,13 @@ impl HistoryStore {
             metadata.size_bytes,
         )?;
 
+        let line_ending = LineEnding::detect(&content);
         Ok(DocumentHistorySnapshot {
             version_id: metadata.version_id,
             relative_path: document.relative_path.clone(),
             name: document.name.clone(),
-            content,
+            content: LineEnding::normalize(&content),
+            line_ending,
             created_at_ms: metadata.created_at_ms,
             size_bytes: metadata.size_bytes,
         })
@@ -1487,6 +1489,25 @@ mod tests {
         assert_eq!(versions.len(), 1);
         let snapshot = store.read(&document, &versions[0].version_id).unwrap();
         assert_eq!(snapshot.content, "kept");
+    }
+
+    #[test]
+    fn returns_crlf_history_as_lf_editor_content() {
+        let workspace = tempdir().unwrap();
+        let app_data = tempdir().unwrap();
+        let document = history_document(&workspace, "a.md");
+        let store = test_store(&app_data);
+        let version = store.record(&document, "first\r\nsecond\r\n").unwrap();
+
+        let snapshot = store.read(&document, &version.version_id).unwrap();
+
+        assert_eq!(snapshot.content, "first\nsecond\n");
+        assert_eq!(snapshot.line_ending, LineEnding::Crlf);
+        assert_eq!(snapshot.size_bytes, 15);
+        assert_eq!(
+            serde_json::to_value(&snapshot).unwrap()["lineEnding"],
+            "crlf"
+        );
     }
 
     #[test]

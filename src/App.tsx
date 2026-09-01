@@ -47,6 +47,7 @@ import {
   remapEntryPath,
   type FileKind,
   type FileTreeNode,
+  type LineEnding,
   type ViewMode,
 } from "./domain/workspace";
 import {
@@ -90,6 +91,7 @@ import {
   type FileTreeFocusRequest,
   type FindBarFocusTarget,
   type ImageViewerSource,
+  type HistoryEntry,
   type TextSelection,
 } from "./features";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
@@ -137,6 +139,7 @@ interface PendingHistoryLoad {
   content: string;
   documentId: string;
   documentName: string;
+  lineEnding: LineEnding;
   versionLabel: string;
 }
 
@@ -688,9 +691,13 @@ export function App() {
     [controller.reportError, currentDocument, openWorkspaceImage, t],
   );
   const changeDocumentContent = useCallback(
-    (id: string, content: string) => {
+    (id: string, content: string, lineEnding?: LineEnding) => {
       liveDocumentContentRef.current.set(id, content);
-      controller.changeDocument(id, content);
+      if (lineEnding === undefined) {
+        controller.changeDocument(id, content);
+      } else {
+        controller.changeDocument(id, content, lineEnding);
+      }
     },
     [controller.changeDocument],
   );
@@ -2378,9 +2385,13 @@ export function App() {
   );
 
   const requestHistoryLoad = useCallback(
-    (entry: { content?: string; label: string }) => {
+    (entry: HistoryEntry) => {
       if (!currentDocument || entry.content === undefined) return;
-      if (entry.content === currentDocument.content) {
+      const lineEnding = entry.lineEnding ?? currentDocument.lineEnding;
+      if (
+        entry.content === currentDocument.content &&
+        lineEnding === currentDocument.lineEnding
+      ) {
         setWorkbenchSurface("document");
         return;
       }
@@ -2389,11 +2400,16 @@ export function App() {
           content: entry.content,
           documentId: currentDocument.relativePath,
           documentName: currentDocument.name,
+          lineEnding,
           versionLabel: entry.label,
         });
         return;
       }
-      changeDocumentContent(currentDocument.relativePath, entry.content);
+      changeDocumentContent(
+        currentDocument.relativePath,
+        entry.content,
+        lineEnding,
+      );
       setWorkbenchSurface("document");
     },
     [changeDocumentContent, currentDocument],
@@ -2404,6 +2420,7 @@ export function App() {
     changeDocumentContent(
       pendingHistoryLoad.documentId,
       pendingHistoryLoad.content,
+      pendingHistoryLoad.lineEnding,
     );
     controller.activateDocument(pendingHistoryLoad.documentId);
     setPendingHistoryLoad(null);
