@@ -272,26 +272,6 @@ export function saveBackgroundSettings(
   }
 }
 
-export function clearBackgroundSettings(
-  storage: SettingsStorage | null = browserStorage(),
-): void {
-  if (!storage) {
-    throw new BackgroundError(
-      "storage-unavailable",
-      "Appearance preferences cannot be reset in this environment.",
-    );
-  }
-  try {
-    storage.removeItem(BACKGROUND_SETTINGS_KEY);
-  } catch (error) {
-    throw new BackgroundError(
-      "storage-failed",
-      "Viva could not reset the background settings.",
-      { cause: error },
-    );
-  }
-}
-
 function mimeTypeFromFile(file: Pick<File, "name" | "type">): string {
   const declared = file.type.toLocaleLowerCase();
   if (declared) return declared;

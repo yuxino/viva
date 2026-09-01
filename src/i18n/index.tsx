@@ -111,13 +111,6 @@ export function saveLanguagePreference(
   }
 }
 
-export function resolveLanguage(
-  preference: LanguagePreference,
-  languages: readonly string[] = browserLanguages(),
-): VivaLanguage {
-  return preference === "system" ? detectLanguage(languages) : preference;
-}
-
 export function getIntlLocale(language: VivaLanguage): string {
   return locales[language];
 }

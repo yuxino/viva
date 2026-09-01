@@ -388,7 +388,3 @@ export function flattenImages(nodes: FileTreeNode[]): FileTreeNode[] {
         : [],
   );
 }
-
-export function isWorkspaceImage(node: FileTreeNode): boolean {
-  return node.kind === "image";
-}
