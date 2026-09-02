@@ -54,6 +54,19 @@ export function validateSourceVersion(sourceRoot, tag) {
     existsSync(join(sourceRoot, `docs/release-notes-v${expectedVersion}.md`)),
     `missing release notes for v${expectedVersion}`,
   );
+  const capability = JSON.parse(
+    readFileSync(join(sourceRoot, "src-tauri/capabilities/default.json"), "utf8"),
+  );
+  for (const permission of [
+    "core:app:allow-version",
+    "process:allow-restart",
+    "updater:default",
+  ]) {
+    invariant(
+      capability.permissions?.includes(permission),
+      `missing updater capability: ${permission}`,
+    );
+  }
   return expectedVersion;
 }
 

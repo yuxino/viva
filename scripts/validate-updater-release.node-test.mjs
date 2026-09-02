@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   normalizeUpdaterManifest,
+  validateSourceVersion,
   validateUpdaterRelease,
   writeHashLedger,
 } from "./validate-updater-release.mjs";
 
 const TAG = "v2.0.6";
 const REPOSITORY = "yuxino/viva";
+const SOURCE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+test("accepts updater source only when version and native capabilities are complete", () => {
+  assert.equal(validateSourceVersion(SOURCE_ROOT, TAG), "2.0.6");
+});
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "viva-updater-release-"));
