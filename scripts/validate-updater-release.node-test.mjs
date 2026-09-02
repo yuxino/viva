@@ -56,17 +56,29 @@ test("accepts complete metadata and invokes cryptographic verification for each 
 
 test("normalizes Tauri Action installer-specific aliases to the two supported targets", () => {
   const { directory, manifest } = fixture();
+  manifest.platforms["darwin-aarch64"].url =
+    "https://api.github.com/repos/yuxino/viva/releases/assets/100";
+  manifest.platforms["windows-x86_64"].url =
+    "https://api.github.com/repos/yuxino/viva/releases/assets/200";
   manifest.platforms["darwin-aarch64-app"] = manifest.platforms["darwin-aarch64"];
   manifest.platforms["windows-x86_64-nsis"] = manifest.platforms["windows-x86_64"];
   writeFileSync(join(directory, "latest.json"), JSON.stringify(manifest));
 
-  normalizeUpdaterManifest(directory);
+  normalizeUpdaterManifest({ directory, repository: REPOSITORY, tag: TAG });
 
   const normalized = JSON.parse(readFileSync(join(directory, "latest.json"), "utf8"));
   assert.deepEqual(Object.keys(normalized.platforms), [
     "darwin-aarch64",
     "windows-x86_64",
   ]);
+  assert.equal(
+    normalized.platforms["darwin-aarch64"].url,
+    `https://github.com/${REPOSITORY}/releases/download/${TAG}/Viva_2.0.6_aarch64.app.tar.gz`,
+  );
+  assert.equal(
+    normalized.platforms["windows-x86_64"].url,
+    `https://github.com/${REPOSITORY}/releases/download/${TAG}/Viva_2.0.6_x64-setup.exe`,
+  );
   assert.doesNotThrow(() =>
     validateUpdaterRelease({ directory, tag: TAG, repository: REPOSITORY }),
   );

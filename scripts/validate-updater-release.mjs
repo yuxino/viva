@@ -57,16 +57,30 @@ export function validateSourceVersion(sourceRoot, tag) {
   return expectedVersion;
 }
 
-export function normalizeUpdaterManifest(directory) {
+export function normalizeUpdaterManifest({ directory, repository, tag }) {
   const path = join(directory, "latest.json");
   invariant(existsSync(path), "latest.json is missing");
   const manifest = JSON.parse(readFileSync(path, "utf8"));
   const platforms = manifest.platforms;
   invariant(platforms && typeof platforms === "object", "latest.json platforms are missing");
+  const files = releaseFiles(directory);
   manifest.platforms = Object.fromEntries(
     REQUIRED_UPDATE_TARGETS.map((target) => {
-      invariant(platforms[target], `missing updater entry for ${target}`);
-      return [target, platforms[target]];
+      const entry = platforms[target];
+      invariant(entry, `missing updater entry for ${target}`);
+      invariant(typeof entry.signature === "string" && entry.signature.trim(), `empty updater signature for ${target}`);
+      const candidates = files.filter((name) => {
+        const correctBundle = target === "darwin-aarch64"
+          ? name.endsWith(".app.tar.gz")
+          : name.endsWith("-setup.exe");
+        return correctBundle && files.includes(`${name}.sig`) &&
+          readFileSync(join(directory, `${name}.sig`), "utf8").trim() === entry.signature.trim();
+      });
+      invariant(candidates.length === 1, `could not bind ${target} to exactly one signed updater asset`);
+      return [target, {
+        signature: entry.signature,
+        url: `https://github.com/${repository}/releases/download/${tag}/${encodeURIComponent(candidates[0])}`,
+      }];
     }),
   );
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -205,7 +219,9 @@ async function main() {
   const directory = resolve(options.directory);
   const repository = options.repository;
   invariant(repository, "--repository is required when --directory is set");
-  if (options.normalize === "true") normalizeUpdaterManifest(directory);
+  if (options.normalize === "true") {
+    normalizeUpdaterManifest({ directory, repository, tag });
+  }
   const tauriConfig = JSON.parse(
     readFileSync(join(sourceRoot, "src-tauri/tauri.conf.json"), "utf8"),
   );
