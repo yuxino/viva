@@ -35,6 +35,9 @@ jobs:
       - name: Test frontend
         run: pnpm test
 
+      - name: Test release validation and updater signatures
+        run: pnpm test:release
+
       - name: Build frontend
         run: pnpm build
 
@@ -59,7 +62,7 @@ jobs:
 
       - name: Build Windows NSIS installer
         if: matrix.os == 'windows-2025'
-        run: pnpm tauri build --bundles nsis
+        run: pnpm tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Upload Windows NSIS installer
         if: matrix.os == 'windows-2025'

@@ -94,6 +94,7 @@ import {
   type HistoryEntry,
   type TextSelection,
 } from "./features";
+import { UpdatePanel } from "./features/updater/UpdatePanel";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useCloseProtection } from "./hooks/useCloseProtection";
 import { useDocumentHistory } from "./hooks/useDocumentHistory";
@@ -2768,6 +2769,7 @@ export function App() {
                     value={preference}
                   />
                 </section>
+                <UpdatePanel platform={platform} />
                 <AppearancePanel controller={background} />
               </div>
             </div>

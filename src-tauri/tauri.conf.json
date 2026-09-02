@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Viva",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "identifier": "app.yuxino.viva",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -31,6 +31,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "category": "DeveloperTool",
     "icon": [
@@ -41,7 +42,19 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "12.3"
+      "minimumSystemVersion": "12.3",
+      "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/yuxino/viva/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMwQTNFODAzM0VDNTZDQTgKUldTb2JNVStBK2lqd0Nxd1dZK0JOU0w5N3h1SzdTcXNxNGdPOXIxaUxVbFBwdnhrUXdWd3VIWi8K",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

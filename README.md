@@ -39,7 +39,21 @@ you need a different view.
 
 Viva does not upload documents, run analytics, or require an account. Markdown,
 history, appearance settings, and optional background artwork stay on the device.
-External links open only when you choose them.
+External links open only when you choose them. A manual Software Update check
+makes one native HTTPS request to Viva's fixed GitHub Release feed; documents,
+settings, and usage data are never included.
+
+## Signed software updates
+
+Viva 2.0.6 introduces user-confirmed in-app updates. Open **Appearance and
+background → Software Update** to check the fixed release feed, read the release
+notes, and choose whether to download. Tauri verifies every downloaded updater
+bundle against Viva's embedded public key before installation; there is no
+unsigned fallback.
+
+**Bootstrap:** Viva 2.0.5 and earlier do not contain the updater. Install 2.0.6
+manually once from [GitHub Releases](https://github.com/yuxino/viva/releases),
+then future signed releases can be installed from inside Viva.
 
 <details>
 <summary>Development</summary>

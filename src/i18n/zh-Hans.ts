@@ -397,6 +397,35 @@ const zhHans = {
     "移动此项目后，将关闭 %d 个已打开的文档。",
   "%d open documents will close after this item is moved.":
     "移动此项目后，将关闭 %d 个已打开的文档。",
+  "Check for updates": "检查更新",
+  "Checking for updates…": "正在检查更新…",
+  "Download and install": "下载并安装",
+  "Download complete. Verifying Viva’s update signature…":
+    "下载完成，正在验证 Viva 更新签名…",
+  "Download update": "下载更新",
+  "Downloaded %@": "已下载 %@",
+  "Downloading update… %d percent": "正在下载更新… %d%",
+  "Installing the verified update…": "正在安装已验证的更新…",
+  "Not now": "稍后再说",
+  "Open GitHub Releases": "打开 GitHub Releases",
+  "Release notes": "更新说明",
+  "Restart and finish update": "重新启动并完成更新",
+  Retry: "重试",
+  "Software Update": "软件更新",
+  "Starting the verified Windows installer…": "正在启动已验证的 Windows 安装程序…",
+  "The update could not be downloaded or verified.": "无法下载或验证更新。",
+  "The verified update could not be installed.": "无法安装已验证的更新。",
+  "The verified update is installed and ready.": "已验证的更新已安装并准备就绪。",
+  "Update download progress": "更新下载进度",
+  "Updates are downloaded only after you approve them and must pass Viva’s signature check.":
+    "只有在你确认后才会下载更新，且必须通过 Viva 的签名验证。",
+  "Viva %@ is available.": "Viva %@ 可以更新。",
+  "Viva %@ is up to date.": "Viva %@ 已是最新版本。",
+  "Viva checks one fixed, secure release feed.": "Viva 只检查一个固定的安全发布源。",
+  "Viva could not check for updates.": "Viva 无法检查更新。",
+  "Viva could not restart to finish the update.": "Viva 无法重新启动以完成更新。",
+  "Viva will close after verification. The Windows installer will finish the update and reopen Viva.":
+    "验证完成后 Viva 会关闭。Windows 安装程序将完成更新并重新打开 Viva。",
 } satisfies Record<keyof typeof en, string>;
 
 export default zhHans;

@@ -1,6 +1,6 @@
 [package]
 name = "viva"
-version = "2.0.5"
+version = "2.0.6"
 description = "A quiet local workspace for Markdown"
 authors = ["Yuxino"]
 license = "MIT"
@@ -30,6 +30,8 @@ sha2 = "=0.10.9"
 tauri = { version = "=2.11.5", features = [] }
 tauri-plugin-dialog = "=2.7.2"
 tauri-plugin-opener = "=2.5.4"
+tauri-plugin-process = "=2.3.1"
+tauri-plugin-updater = "=2.11.0"
 tauri-plugin-window-state = "=2.4.1"
 tempfile = "=3.27.0"
 trash = "=5.2.6"

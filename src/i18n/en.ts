@@ -412,6 +412,41 @@ const en = {
     "%d open document will close after this item is moved.",
   "%d open documents will close after this item is moved.":
     "%d open documents will close after this item is moved.",
+  "Check for updates": "Check for updates",
+  "Checking for updates…": "Checking for updates…",
+  "Download and install": "Download and install",
+  "Download complete. Verifying Viva’s update signature…":
+    "Download complete. Verifying Viva’s update signature…",
+  "Download update": "Download update",
+  "Downloaded %@": "Downloaded %@",
+  "Downloading update… %d percent": "Downloading update… %d percent",
+  "Installing the verified update…": "Installing the verified update…",
+  "Not now": "Not now",
+  "Open GitHub Releases": "Open GitHub Releases",
+  "Release notes": "Release notes",
+  "Restart and finish update": "Restart and finish update",
+  Retry: "Retry",
+  "Software Update": "Software Update",
+  "Starting the verified Windows installer…":
+    "Starting the verified Windows installer…",
+  "The update could not be downloaded or verified.":
+    "The update could not be downloaded or verified.",
+  "The verified update could not be installed.":
+    "The verified update could not be installed.",
+  "The verified update is installed and ready.":
+    "The verified update is installed and ready.",
+  "Update download progress": "Update download progress",
+  "Updates are downloaded only after you approve them and must pass Viva’s signature check.":
+    "Updates are downloaded only after you approve them and must pass Viva’s signature check.",
+  "Viva %@ is available.": "Viva %@ is available.",
+  "Viva %@ is up to date.": "Viva %@ is up to date.",
+  "Viva checks one fixed, secure release feed.":
+    "Viva checks one fixed, secure release feed.",
+  "Viva could not check for updates.": "Viva could not check for updates.",
+  "Viva could not restart to finish the update.":
+    "Viva could not restart to finish the update.",
+  "Viva will close after verification. The Windows installer will finish the update and reopen Viva.":
+    "Viva will close after verification. The Windows installer will finish the update and reopen Viva.",
 } as const;
 
 export default en;

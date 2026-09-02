@@ -15,7 +15,9 @@ use tauri::Manager;
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
     let builder = if runtime::should_restore_window_state() {
         builder.plugin(tauri_plugin_window_state::Builder::default().build())
     } else {

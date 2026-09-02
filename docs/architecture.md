@@ -3,7 +3,9 @@
 Viva is a local-first Markdown workspace for macOS and Windows. It opens an
 ordinary folder, edits UTF-8 Markdown-compatible files, and keeps optional
 history and appearance data on the device. The application has no account,
-analytics, upload, sync, or in-WebView network-content path.
+analytics, upload, sync, or in-WebView network-content path. Its only product
+network request is a user-triggered native updater check against one fixed HTTPS
+GitHub Release metadata URL.
 
 ## Runtime overview
 
@@ -23,6 +25,7 @@ Rust / Tauri 2
   ├─ revision check → temporary file → flush → atomic replace
   ├─ content-addressed history in application data
   ├─ native menu, new-process window launch, and process locks
+  ├─ signed, user-confirmed release updater
   └─ fail-closed native quit protection
 ```
 
@@ -114,6 +117,26 @@ follow the operating system or be pinned in `localStorage`; language and storage
 events update open renderers, and Viva-owned native menu labels are rebuilt for
 the resolved language.
 
+## Signed software updates
+
+The renderer can ask the official Tauri updater plugin to check, download, and
+install, but it cannot choose an endpoint, public key, or arbitrary download.
+Configuration fixes the endpoint to Viva's HTTPS `latest.json` on GitHub
+Releases and embeds only the updater public key. The encrypted private key stays
+outside the repository and is available to release CI only through secrets.
+
+Checks are manual and single-flight. The UI displays the available version and
+release notes before download, uses byte events for determinate progress only
+when `Content-Length` exists, and otherwise shows indeterminate progress. Tauri
+verifies the complete downloaded bundle before `install()` can run. A failed
+check, download, signature verification, install, or restart remains retryable;
+the fixed Releases page appears only as error recovery.
+
+On macOS and Linux, a successful install reaches a restart-ready state and only
+an explicit user action calls the process plugin's relaunch command. On Windows,
+Tauri must exit Viva after launching the passive NSIS updater, which completes
+installation and restarts the app. See [ADR-0008](adr/0008-signed-user-confirmed-updates.md).
+
 See [ADR-0002](adr/0002-bounded-local-history.md) and
 [ADR-0003](adr/0003-local-background-storage.md).
 
@@ -189,11 +212,16 @@ See [ADR-0007](adr/0007-fail-closed-native-quit-protection.md).
 - Application UI and Viva-owned native menu labels are translated into English
   and Simplified Chinese. Low-level operating-system error text may still follow
   the OS language.
+- Viva 2.0.5 and earlier cannot discover the signed updater bootstrap release;
+  users must manually install 2.0.6 once before in-app updates are available.
 
 ## Verification
 
 The repository gate is `pnpm test`, `pnpm build`, `pnpm check:size`, Rust
 tests/check/format/strict Clippy on supported targets, and `git diff --check`.
+Release CI additionally verifies source/tag version parity, both updater target
+entries, HTTPS/tag-bound URLs, detached-signature parity, cryptographic updater
+signatures, unique assets, public availability, and a SHA-256 ledger.
 `check:size` enforces the 300 KiB compressed renderer budget above and a 1 MiB
 complete `dist` budget that includes the bundled artwork. Native acceptance uses
 a consistently signed app at a stable path and exercises folder open, Live
