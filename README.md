@@ -10,13 +10,19 @@
   English · <a href="README_ZH.md">简体中文</a>
 </p>
 
-<p align="center">
-  <img src="docs/images/viva-live-editor.png" width="1080" alt="Viva Live editor in the graphite-dark theme">
-</p>
-
 Viva brings your folders, Markdown source, and beautifully typeset pages into
 one focused desktop workspace. Your files remain ordinary files on your own
 computer—no account, sync service, or proprietary document format required.
+
+<!-- project-demo-v1 -->
+## Demo
+
+[![viva — Demo](docs/demos/preview.gif)](docs/demos/demo.mp4)
+
+[Full video (MP4)](docs/demos/demo.mp4) · [About this demo](docs/demos/README.md)
+
+Open a sample note, edit Markdown, and switch between Source, Split and Live. Recorded from the actual frontend with sample data. Files are supplied in memory by the demo environment; no native files are read or written.
+<!-- /project-demo-v1 -->
 
 ## Write without leaving the page
 

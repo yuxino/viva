@@ -10,12 +10,18 @@
   <a href="README.md">English</a> · 简体中文
 </p>
 
-<p align="center">
-  <img src="docs/images/viva-live-editor.png" width="1080" alt="Viva 石墨深色主题下的即时编辑器">
-</p>
-
 Viva 把文件夹、Markdown 源文和排版后的页面放进同一个专注的桌面工作区。
 文件始终留在你的电脑上，仍然是普通文件；不需要账户、同步服务或私有文档格式。
+
+<!-- project-demo-v1 -->
+## 演示
+
+[![viva — 演示](docs/demos/preview.gif)](docs/demos/demo.mp4)
+
+[完整视频（MP4）](docs/demos/demo.mp4) · [演示说明](docs/demos/README.md)
+
+打开示例笔记、编辑 Markdown，以及 Source / Split / Live 切换。 真实前端录制，使用示例数据。文件由演示环境提供，不读写本机文件。
+<!-- /project-demo-v1 -->
 
 ## 不离开页面，也能认真写作
 

@@ -1,0 +1,46 @@
+{
+  "project": "viva",
+  "source_commit": "f026142b7d53d5a41831872b40aef735fa66c246",
+  "capture": "Unmodified production frontend in Chrome, documentation-only native-boundary fixtures",
+  "limitations": "Markdown UI · in-memory sample files · no native file access",
+  "steps": [
+    {
+      "zh": "打开一份示例笔记。",
+      "en": "Open a sample Markdown workspace."
+    },
+    {
+      "zh": "在源码里补上一句，再看实时预览。",
+      "en": "Write a line in Source, then switch to Split."
+    },
+    {
+      "zh": "切回 Live，把注意力留给文字。",
+      "en": "Switch to Live and keep the focus on your words."
+    }
+  ],
+  "browser": "152.0.7977.64",
+  "duration": 36.72,
+  "sha256": "4c03f60272e85f54a13331af61f21e82bc23f89155a059906d2a9509583cbc62",
+  "recording_tool_sha256": "4167ddf8ad21f68b88e09fccfe56ce753ba4275b9c129b4cc3e2c5c7bbbee1f0",
+  "fixture_sha256": {
+    "page-1.png": "4d3c3aa80d2b0cd34bb8bcb6082273a10359d4fa6db1fbda0c891b9d9ab99518",
+    "page-2.png": "39aa63b25ac99652921004658f87bfc960cd6e13f0873a2141549879b85a72a5",
+    "page-3.png": "c0a63e7280fdcde7a64e7ea24b645853851a863c01d3af40db8780b8250c75d1",
+    "sample.pdf": "3780d846aa7ca61b185d52fa78ecc9b8d9d82555c7a7a77e4b7eefc45bf66444",
+    "source.png": "97d3fefc662fe60947efd6e9870b16164f2fb72fb6aac8883a552c8f0bb41572"
+  },
+  "media": {
+    "demo.mp4": {
+      "bytes": 642581,
+      "sha256": "4c03f60272e85f54a13331af61f21e82bc23f89155a059906d2a9509583cbc62"
+    },
+    "poster.png": {
+      "bytes": 318571,
+      "sha256": "878848cf2345a6dc21d0b085e6ea3338b6467ab7bc9b1b5a17635caf3d3a6208"
+    },
+    "preview.gif": {
+      "bytes": 2141088,
+      "sha256": "fe8e1cc02a31574360a0500d49f6310e7f8789467b7c413f3440693da7fc3366"
+    }
+  },
+  "disclosure": "Real frontend interaction recording with synthetic local data and mocked native boundaries. Not native end-to-end validation. No personal data, external content, provider requests, audio capture or task execution."
+}
