@@ -1,57 +1,138 @@
 {
   "project": "viva",
   "source_commit": "f026142b7d53d5a41831872b40aef735fa66c246",
-  "capture": "Unmodified production frontend in Chrome, documentation-only native-boundary fixtures",
+  "capture": "Unmodified production frontend in Chrome with isolated local sample data and mocked native APIs",
   "limitations": "Markdown UI · in-memory sample files · no native file access",
-  "steps": [
+  "browser": "152.0.7977.64",
+  "speed_factor": 10,
+  "result_hold_seconds": 0.8,
+  "duration": 22.466667,
+  "source_duration": 129.10649999999998,
+  "sha256": "0cad2f26fe1705cdc42d5afe8b4ab28180fc4e95bb9d3bf9053a339c4dd36efe",
+  "scenes": [
     {
-      "zh": "打开一份示例笔记。",
-      "en": "Open a sample Markdown workspace."
+      "zh": "打开文件夹，开始一份笔记",
+      "en": "01 / Open a Markdown workspace",
+      "start": 3.4097000000000115,
+      "end": 14.492700000000012,
+      "poster": "01.png"
     },
     {
-      "zh": "在源码里补上一句，再看实时预览。",
-      "en": "Write a line in Source, then switch to Split."
+      "zh": "源码里写下一个新想法",
+      "en": "02 / Edit the Markdown source",
+      "start": 14.492700000000012,
+      "end": 32.7679,
+      "poster": "02.png"
     },
     {
-      "zh": "切回 Live，把注意力留给文字。",
-      "en": "Switch to Live and keep the focus on your words."
+      "zh": "边写边看，源码与排版并排",
+      "en": "03 / Split editor and preview",
+      "start": 32.7679,
+      "end": 42.40010000000001,
+      "poster": "03.png"
+    },
+    {
+      "zh": "只看排版后的页面",
+      "en": "04 / Full-page preview",
+      "start": 42.40010000000001,
+      "end": 53.134899999999995,
+      "poster": "04.png"
+    },
+    {
+      "zh": "切回 Live，继续在页面上写",
+      "en": "05 / Live editing view",
+      "start": 53.134899999999995,
+      "end": 59.10279999999999,
+      "poster": "05.png"
+    },
+    {
+      "zh": "目录自动跟随文档结构",
+      "en": "06 / Document outline",
+      "start": 59.10279999999999,
+      "end": 67.2815,
+      "poster": "06.png"
+    },
+    {
+      "zh": "另一份文档，留在另一个标签",
+      "en": "07 / Work across multiple tabs",
+      "start": 67.2815,
+      "end": 81.95579999999998,
+      "poster": "07.png"
+    },
+    {
+      "zh": "在当前文档里查找关键词",
+      "en": "08 / Find in the current document",
+      "start": 81.95579999999998,
+      "end": 97.09029999999998,
+      "poster": "08.png"
+    },
+    {
+      "zh": "进入专注模式，暂时收起其他东西",
+      "en": "09 / Focus mode",
+      "start": 97.09029999999998,
+      "end": 112.5855,
+      "poster": "09.png"
+    },
+    {
+      "zh": "外观与背景，在这里调整",
+      "en": "10 / Appearance controls",
+      "start": 112.5855,
+      "end": 120.07590000000002,
+      "poster": "10.png"
+    },
+    {
+      "zh": "也提供深色工作区",
+      "en": "11 / Dark appearance",
+      "start": 120.07590000000002,
+      "end": 126.453,
+      "poster": "11.png"
+    },
+    {
+      "zh": "回到浅色，接着写",
+      "en": "12 / Return to the document",
+      "start": 126.453,
+      "end": 132.5162,
+      "poster": "12.png"
     }
   ],
-  "browser": "152.0.7977.64",
-  "duration": 18.36,
-  "sha256": "e9d67c543b903dbbad61e00680500bb4920fe15fc30d9063b20de52e6f1d2c8d",
-  "recording_tool_sha256": "4167ddf8ad21f68b88e09fccfe56ce753ba4275b9c129b4cc3e2c5c7bbbee1f0",
-  "fixture_sha256": {
-    "page-1.png": "4d3c3aa80d2b0cd34bb8bcb6082273a10359d4fa6db1fbda0c891b9d9ab99518",
-    "page-2.png": "39aa63b25ac99652921004658f87bfc960cd6e13f0873a2141549879b85a72a5",
-    "page-3.png": "c0a63e7280fdcde7a64e7ea24b645853851a863c01d3af40db8780b8250c75d1",
-    "sample.pdf": "3780d846aa7ca61b185d52fa78ecc9b8d9d82555c7a7a77e4b7eefc45bf66444",
-    "source.png": "97d3fefc662fe60947efd6e9870b16164f2fb72fb6aac8883a552c8f0bb41572"
-  },
+  "actions": [
+    "Open folder",
+    "Weekend.md",
+    "Source",
+    "Editing Weekend.md",
+    "Edit Markdown source",
+    "Split",
+    "Preview",
+    "Live",
+    "Outline",
+    "Files",
+    "Ideas.md",
+    "Weekend.md",
+    "Source",
+    "Find in document",
+    "Type: small",
+    "Close find and replace",
+    "Focus mode",
+    "Exit focus mode shortcut",
+    "Appearance and background",
+    "Dark",
+    "Light",
+    "Return to document"
+  ],
+  "disclosure": "New, expanded frontend interaction recording. Every action interval is retimed at 10x; each result receives a 0.8-second hold. Native API boundaries use original sample data. No live AI request, system capture, task execution or native filesystem acceptance is claimed.",
+  "recording_tool_sha256": "9a88822bb8cffe05bc0c48e805c9d0b843e9b7b8a5bb2e68c64d4e37c108005e",
   "media": {
     "demo.mp4": {
-      "bytes": 555267,
-      "sha256": "e9d67c543b903dbbad61e00680500bb4920fe15fc30d9063b20de52e6f1d2c8d"
-    },
-    "poster.png": {
-      "bytes": 318571,
-      "sha256": "878848cf2345a6dc21d0b085e6ea3338b6467ab7bc9b1b5a17635caf3d3a6208"
+      "bytes": 1007749,
+      "sha256": "0cad2f26fe1705cdc42d5afe8b4ab28180fc4e95bb9d3bf9053a339c4dd36efe"
     },
     "preview.gif": {
-      "bytes": 2112313,
-      "sha256": "ef8a321d0759fd7d33344c6e0805e719b78d37e3c91f43cf0deacd2d64c472ca"
+      "bytes": 3038636,
+      "sha256": "d7e6bc9c6947d1b2e1bca6710fb7fb2a8d541e79927d0603b1bc2c2f31c2d564"
+    },
+    "poster.png": {
+      "bytes": 135332,
+      "sha256": "914c58de17195d65451b2e3d529d50da85434f69394527529ccd8e4bedd455d9"
     }
-  },
-  "disclosure": "Real frontend interaction recording with synthetic local data and mocked native boundaries. Not native end-to-end validation. No personal data, external content, provider requests, audio capture or task execution.",
-  "retiming": {
-    "speed": 2.0,
-    "source_duration": 36.72,
-    "source_video_sha256": "4c03f60272e85f54a13331af61f21e82bc23f89155a059906d2a9509583cbc62",
-    "source_preview_sha256": "fe8e1cc02a31574360a0500d49f6310e7f8789467b7c413f3440693da7fc3366",
-    "tool_sha256": "d761d3bdbb5c3903f6654e3d9bc109d8baf026cfe5b899199274e5e1e5cdfd9f",
-    "video_fps": 25,
-    "gif_fps": 10,
-    "method": "Uniform timestamp acceleration; no scene removal, cropping, new UI or audio.",
-    "disclosures_preserved": true
   }
 }

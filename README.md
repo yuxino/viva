@@ -21,7 +21,7 @@ computer—no account, sync service, or proprietary document format required.
 
 [Full video (MP4)](docs/demos/demo.mp4) · [About this demo](docs/demos/README.md)
 
-Open a sample note, edit Markdown, and switch between Source, Split and Live. Recorded from the actual frontend with sample data. Files are supplied in memory by the demo environment; no native files are read or written.
+Source editing, four views, outline, tabs, find, focus mode and light/dark appearance. **10x actions with 0.8-second result holds.** Actual frontend with sample data. Uses in-memory sample documents, not native filesystem access.
 <!-- /project-demo-v1 -->
 
 ## Write without leaving the page
