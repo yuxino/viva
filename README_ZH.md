@@ -18,9 +18,9 @@ Viva 把文件夹、Markdown 源文和排版后的页面放进同一个专注的
 
 [![viva — 演示](docs/demos/preview.gif)](docs/demos/demo.mp4)
 
-[完整视频（MP4）](docs/demos/demo.mp4) · [演示说明](docs/demos/README.md)
+[观看视频](docs/demos/demo.mp4)
 
-源码编辑、四种视图、大纲、多标签、文内查找、专注模式与浅深色主题。 **10× 操作快放，结果停留 0.8 秒。** 真实前端录制，使用示例数据。使用内存中的示例文件，不读写本机文件。
+写 Markdown，切换编辑视图，用大纲、多标签和查找整理笔记。
 <!-- /project-demo-v1 -->
 
 ## 不离开页面，也能认真写作
