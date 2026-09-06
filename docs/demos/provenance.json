@@ -1,138 +1,96 @@
 {
   "project": "viva",
+  "success": true,
   "source_commit": "f026142b7d53d5a41831872b40aef735fa66c246",
-  "capture": "Unmodified production frontend in Chrome with isolated local sample data and mocked native APIs",
-  "limitations": "Markdown UI · in-memory sample files · no native file access",
-  "browser": "152.0.7977.64",
+  "dimensions": [
+    1920,
+    1080
+  ],
+  "render_scale": 1.5,
+  "single_take": true,
+  "scene_cuts": 0,
+  "added_holds": 0,
   "speed_factor": 10,
-  "result_hold_seconds": 0.8,
-  "duration": 22.466667,
-  "source_duration": 129.10649999999998,
-  "sha256": "0cad2f26fe1705cdc42d5afe8b4ab28180fc4e95bb9d3bf9053a339c4dd36efe",
-  "scenes": [
+  "steps": [
     {
-      "zh": "打开文件夹，开始一份笔记",
-      "en": "01 / Open a Markdown workspace",
-      "start": 3.4097000000000115,
-      "end": 14.492700000000012,
-      "poster": "01.png"
+      "name": "Open workspace",
+      "time": 1.6532780399999965
     },
     {
-      "zh": "源码里写下一个新想法",
-      "en": "02 / Edit the Markdown source",
-      "start": 14.492700000000012,
-      "end": 32.7679,
-      "poster": "02.png"
+      "name": "Edit source",
+      "time": 13.871018666999994
     },
     {
-      "zh": "边写边看，源码与排版并排",
-      "en": "03 / Split editor and preview",
-      "start": 32.7679,
-      "end": 42.40010000000001,
-      "poster": "03.png"
+      "name": "Split preview",
+      "time": 19.74961992699999
     },
     {
-      "zh": "只看排版后的页面",
-      "en": "04 / Full-page preview",
-      "start": 42.40010000000001,
-      "end": 53.134899999999995,
-      "poster": "04.png"
+      "name": "Reading preview",
+      "time": 25.767413373999993
     },
     {
-      "zh": "切回 Live，继续在页面上写",
-      "en": "05 / Live editing view",
-      "start": 53.134899999999995,
-      "end": 59.10279999999999,
-      "poster": "05.png"
+      "name": "Live editing",
+      "time": 31.725235458999997
     },
     {
-      "zh": "目录自动跟随文档结构",
-      "en": "06 / Document outline",
-      "start": 59.10279999999999,
-      "end": 67.2815,
-      "poster": "06.png"
+      "name": "Outline",
+      "time": 37.55305281799999
     },
     {
-      "zh": "另一份文档，留在另一个标签",
-      "en": "07 / Work across multiple tabs",
-      "start": 67.2815,
-      "end": 81.95579999999998,
-      "poster": "07.png"
+      "name": "Multiple documents",
+      "time": 44.08148347
     },
     {
-      "zh": "在当前文档里查找关键词",
-      "en": "08 / Find in the current document",
-      "start": 81.95579999999998,
-      "end": 97.09029999999998,
-      "poster": "08.png"
+      "name": "Find in document",
+      "time": 51.550228899
     },
     {
-      "zh": "进入专注模式，暂时收起其他东西",
-      "en": "09 / Focus mode",
-      "start": 97.09029999999998,
-      "end": 112.5855,
-      "poster": "09.png"
+      "name": "Focus mode",
+      "time": 58.23069034
     },
     {
-      "zh": "外观与背景，在这里调整",
-      "en": "10 / Appearance controls",
-      "start": 112.5855,
-      "end": 120.07590000000002,
-      "poster": "10.png"
+      "name": "Dark theme",
+      "time": 64.84328688
     },
     {
-      "zh": "也提供深色工作区",
-      "en": "11 / Dark appearance",
-      "start": 120.07590000000002,
-      "end": 126.453,
-      "poster": "11.png"
-    },
-    {
-      "zh": "回到浅色，接着写",
-      "en": "12 / Return to the document",
-      "start": 126.453,
-      "end": 132.5162,
-      "poster": "12.png"
+      "name": "Return to writing",
+      "time": 72.11549699899999
     }
   ],
-  "actions": [
-    "Open folder",
-    "Weekend.md",
-    "Source",
-    "Editing Weekend.md",
-    "Edit Markdown source",
-    "Split",
-    "Preview",
-    "Live",
-    "Outline",
-    "Files",
-    "Ideas.md",
-    "Weekend.md",
-    "Source",
-    "Find in document",
-    "Type: small",
-    "Close find and replace",
-    "Focus mode",
-    "Exit focus mode shortcut",
-    "Appearance and background",
-    "Dark",
-    "Light",
-    "Return to document"
+  "api_calls": 0,
+  "live_provider": false,
+  "response_replay": null,
+  "capture": "Unmodified production frontend in an isolated browser. Native boundaries are documentation fixtures; prior verified response text is replayed offline. No credentials are used.",
+  "capture_timing": {
+    "master_frames": 931,
+    "master_fps": 12,
+    "master_seconds": 77.58333333333333,
+    "wall_seconds": 77.65203776199999
+  },
+  "javascript_errors": [],
+  "sha256": "b77e95077c25d44f7bc134d6976b3babd517d4ce04b8e43d94bfa182ec3aa36a",
+  "capture_run": 34012662273,
+  "capture_artifact": 9982960907,
+  "duration": 7.766667,
+  "previous_media_sha256": "0cad2f26fe1705cdc42d5afe8b4ab28180fc4e95bb9d3bf9053a339c4dd36efe",
+  "preview_dimensions": [
+    1440,
+    810
   ],
-  "disclosure": "New, expanded frontend interaction recording. Every action interval is retimed at 10x; each result receives a 0.8-second hold. Native API boundaries use original sample data. No live AI request, system capture, task execution or native filesystem acceptance is claimed.",
-  "recording_tool_sha256": "9a88822bb8cffe05bc0c48e805c9d0b843e9b7b8a5bb2e68c64d4e37c108005e",
+  "preview_fps": 12,
+  "disclosure": "Actual unmodified frontend with original in-memory notes. No native filesystem acceptance is claimed.",
   "media": {
     "demo.mp4": {
-      "bytes": 1007749,
-      "sha256": "0cad2f26fe1705cdc42d5afe8b4ab28180fc4e95bb9d3bf9053a339c4dd36efe"
+      "bytes": 755635,
+      "sha256": "b77e95077c25d44f7bc134d6976b3babd517d4ce04b8e43d94bfa182ec3aa36a"
     },
     "preview.gif": {
-      "bytes": 3038636,
-      "sha256": "d7e6bc9c6947d1b2e1bca6710fb7fb2a8d541e79927d0603b1bc2c2f31c2d564"
+      "bytes": 1541837,
+      "sha256": "26fc82a574b527bee9dff78164719c308dbdf09302727b822abdf4b09dc1f307"
     },
     "poster.png": {
-      "bytes": 135332,
-      "sha256": "914c58de17195d65451b2e3d529d50da85434f69394527529ccd8e4bedd455d9"
+      "bytes": 158847,
+      "sha256": "b1904c004f7d48d15b68d3935767e35c7687eaccede78ce0b8286dc377465d9a"
     }
   }
 }
