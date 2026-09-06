@@ -19,9 +19,9 @@ computer—no account, sync service, or proprietary document format required.
 
 [![viva — Demo](docs/demos/preview.gif)](docs/demos/demo.mp4)
 
-[Full video (MP4)](docs/demos/demo.mp4) · [About this demo](docs/demos/README.md)
+[Watch video](docs/demos/demo.mp4)
 
-Source editing, four views, outline, tabs, find, focus mode and light/dark appearance. **10x actions with 0.8-second result holds.** Actual frontend with sample data. Uses in-memory sample documents, not native filesystem access.
+Write Markdown, switch editing views, and organize notes with outlines, tabs, and search.
 <!-- /project-demo-v1 -->
 
 ## Write without leaving the page
