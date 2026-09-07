@@ -4,6 +4,8 @@
 
 <h1 align="center">Viva</h1>
 
+<p align="center"><a href="https://viva.yuxino.cn">官网</a></p>
+
 <p align="center">一个安静、本地优先的 Markdown 工作台。</p>
 
 <p align="center">

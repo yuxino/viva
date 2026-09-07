@@ -4,6 +4,8 @@
 
 <h1 align="center">Viva</h1>
 
+<p align="center"><a href="https://viva.yuxino.cn">Website</a></p>
+
 <p align="center">A quiet, local-first workspace for Markdown.</p>
 
 <p align="center">
