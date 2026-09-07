@@ -16,7 +16,8 @@ const REPOSITORY = "yuxino/viva";
 const SOURCE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("accepts updater source only when version and native capabilities are complete", () => {
-  assert.equal(validateSourceVersion(SOURCE_ROOT, TAG), "2.0.6");
+  const version = JSON.parse(readFileSync(join(SOURCE_ROOT, "package.json"), "utf8")).version;
+  assert.equal(validateSourceVersion(SOURCE_ROOT, `v${version}`), version);
 });
 
 function fixture() {

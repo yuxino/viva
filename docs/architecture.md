@@ -212,8 +212,9 @@ See [ADR-0007](adr/0007-fail-closed-native-quit-protection.md).
 - Application UI and Viva-owned native menu labels are translated into English
   and Simplified Chinese. Low-level operating-system error text may still follow
   the OS language.
-- Viva 2.0.5 and earlier cannot discover the signed updater bootstrap release;
-  users must manually install 2.0.6 once before in-app updates are available.
+- Viva 2.0.5 and earlier have no updater; 2.0.6 lacks the app-version read
+  permission required by the check. Users of those versions must manually install
+  2.0.7 once before future signed in-app updates are available.
 
 ## Verification
 
