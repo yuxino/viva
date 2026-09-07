@@ -17,11 +17,11 @@ computer—no account, sync service, or proprietary document format required.
 <!-- project-demo-v1 -->
 ## Demo
 
-[![viva — Demo](docs/demos/preview.gif)](docs/demos/demo.mp4)
-
-[Watch video](docs/demos/demo.mp4)
-
-Write Markdown, switch editing views, and organize notes with outlines, tabs, and search.
+<p align="center">
+  <a href="docs/demos/demo.mp4"><img src="docs/demos/preview.gif" alt="viva — Demo"></a>
+</p>
+<p align="center">Write Markdown, switch editing views, and organize notes with outlines, tabs, and search.</p>
+<p align="center"><a href="docs/demos/demo.mp4">Watch video</a></p>
 <!-- /project-demo-v1 -->
 
 ## Write without leaving the page

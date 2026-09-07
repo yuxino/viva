@@ -16,11 +16,11 @@ Viva 把文件夹、Markdown 源文和排版后的页面放进同一个专注的
 <!-- project-demo-v1 -->
 ## 演示
 
-[![viva — 演示](docs/demos/preview.gif)](docs/demos/demo.mp4)
-
-[观看视频](docs/demos/demo.mp4)
-
-写 Markdown，切换编辑视图，用大纲、多标签和查找整理笔记。
+<p align="center">
+  <a href="docs/demos/demo.mp4"><img src="docs/demos/preview.gif" alt="viva — 演示"></a>
+</p>
+<p align="center">写 Markdown，切换编辑视图，用大纲、多标签和查找整理笔记。</p>
+<p align="center"><a href="docs/demos/demo.mp4">观看视频</a></p>
 <!-- /project-demo-v1 -->
 
 ## 不离开页面，也能认真写作

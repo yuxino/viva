@@ -15,6 +15,49 @@ describe("renderMarkdown", () => {
     expect(rendered.html).toContain('data-source-line="1"');
   });
 
+  it("keeps generated heading suffixes unique beside explicit suffixes", () => {
+    for (const source of [
+      "# Topic\n\n# Topic\n\n# Topic-2\n\n# Topic",
+      "# Topic-2\n\n# Topic\n\n# Topic\n\n# Topic-2",
+    ]) {
+      const preview = renderMarkdown(source);
+      const live = renderMarkdownDocument(source);
+      const ids = preview.outline.map((heading) => heading.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(live.outline).toEqual(preview.outline);
+      const template = document.createElement("template");
+      template.innerHTML = preview.html;
+      expect([...template.content.querySelectorAll("h1")].map((node) => node.id)).toEqual(ids);
+    }
+  });
+
+  it("keeps outline anchors for headings named after DOM properties", () => {
+    const source = "# Title\n\n# Location\n\n# Action\n\n# Name";
+    const preview = renderMarkdown(source);
+    const live = renderMarkdownDocument(source);
+    const ids = preview.outline.map((heading) => heading.id);
+    for (const html of [preview.html, live.blocks.map((block) => block.html).join("")]) {
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      expect([...template.content.querySelectorAll("h1")].map((node) => node.id)).toEqual(ids);
+      expect(ids.every(Boolean)).toBe(true);
+    }
+  });
+
+  it("leaves checkbox-like prose and noninitial list paragraphs intact", () => {
+    const rendered = renderMarkdown(
+      "[x] Ordinary prose\n\n# [x] Heading\n\n> [ ] Quoted prose\n\n- Item\n\n  [x] Continuation\n\n- [x] Task\n  - [ ] Nested task",
+    );
+    const template = document.createElement("template");
+    template.innerHTML = rendered.html;
+    expect(template.content.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    expect(template.content.textContent).toContain("[x] Ordinary prose");
+    expect(template.content.textContent).toContain("[x] Heading");
+    expect(template.content.textContent).toContain("[ ] Quoted prose");
+    expect(template.content.textContent).toContain("[x] Continuation");
+    expect(template.content.querySelectorAll(".task-list-item")).toHaveLength(2);
+  });
+
   it("does not load remote images or raw HTML", () => {
     const rendered = renderMarkdown(
       '<script>alert("no")</script>\n\n![private](https://example.com/pixel.png)',

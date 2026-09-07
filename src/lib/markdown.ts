@@ -72,7 +72,15 @@ const sourceMappedTokens = new Set([
 markdown.core.ruler.after("inline", "viva_task_lists", (state) => {
   for (let index = 0; index < state.tokens.length; index += 1) {
     const token = state.tokens[index];
-    if (token?.type !== "inline") continue;
+    const paragraph = state.tokens[index - 1];
+    const listItem = state.tokens[index - 2];
+    if (
+      token?.type !== "inline" ||
+      paragraph?.type !== "paragraph_open" ||
+      listItem?.type !== "list_item_open"
+    ) {
+      continue;
+    }
     const match = /^\[([ xX])\]\s+/.exec(token.content);
     if (!match || !token.children?.length) continue;
 
@@ -83,14 +91,7 @@ markdown.core.ruler.after("inline", "viva_task_lists", (state) => {
     checkbox.meta = { checked: match[1]?.toLocaleLowerCase() === "x" };
     token.children.unshift(checkbox);
 
-    for (let parent = index - 1; parent >= 0; parent -= 1) {
-      const candidate = state.tokens[parent];
-      if (candidate?.type === "list_item_close") break;
-      if (candidate?.type === "list_item_open") {
-        candidate.attrJoin("class", "task-list-item");
-        break;
-      }
-    }
+    listItem.attrJoin("class", "task-list-item");
   }
 });
 
@@ -130,9 +131,13 @@ function assignSourceLines(tokens: Token[]): void {
   }
 }
 
+// Match the sanitizer's DOM-clobbering guard so outline anchors survive sanitizing.
+const headingNameGuard = document.createElement("form");
+
 function assignHeadingIds(tokens: Token[]): OutlineItem[] {
   const outline: OutlineItem[] = [];
   const seen = new Map<string, number>();
+  const usedIds = new Set<string>();
 
   for (let index = 0; index < tokens.length; index += 1) {
     const opening = tokens[index];
@@ -140,9 +145,14 @@ function assignHeadingIds(tokens: Token[]): OutlineItem[] {
     const inline = tokens[index + 1];
     const text = inline?.type === "inline" ? inline.content.trim() : "Section";
     const base = slugify(text);
-    const count = seen.get(base) ?? 0;
-    seen.set(base, count + 1);
-    const id = count === 0 ? base : `${base}-${count + 1}`;
+    let count = seen.get(base) ?? 0;
+    let id = base;
+    do {
+      count += 1;
+      id = count === 1 ? base : `${base}-${count}`;
+    } while (usedIds.has(id) || id in document || id in headingNameGuard);
+    seen.set(base, count);
+    usedIds.add(id);
     opening.attrSet("id", id);
     outline.push({
       id,

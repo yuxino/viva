@@ -1250,14 +1250,19 @@ where
             return Ok(());
         }
 
-        let (content, bytes_read) = match read_utf8_content_with_limit(
+        let (bytes, _) = match read_bytes_with_limit(
             &resolved.absolute_path,
             remaining_bytes.min(MAX_DOCUMENT_BYTES),
         ) {
             Ok(content) => content,
             Err(_) => return Ok(()),
         };
-        self.read_bytes = self.read_bytes.saturating_add(bytes_read);
+        // Invalid UTF-8 still consumed I/O and must count toward the search budget.
+        self.read_bytes = self.read_bytes.saturating_add(bytes.len() as u64);
+        let content = match decode_utf8(bytes) {
+            Ok(content) => content,
+            Err(_) => return Ok(()),
+        };
         for (line_index, line) in content.lines().enumerate() {
             for found in self.matcher.find_iter(line) {
                 self.matches.push(SearchMatch {
@@ -3206,12 +3211,6 @@ fn read_utf8_limited(path: &Path) -> CommandResult<(String, LineEnding, FileRevi
     let line_ending = LineEnding::detect(&raw_content);
     let content = LineEnding::normalize(&raw_content);
     Ok((content, line_ending, revision))
-}
-
-fn read_utf8_content_with_limit(path: &Path, max_bytes: u64) -> CommandResult<(String, u64)> {
-    let (bytes, _) = read_bytes_with_limit(path, max_bytes)?;
-    let bytes_read = bytes.len() as u64;
-    Ok((decode_utf8(bytes)?, bytes_read))
 }
 
 fn read_bytes_limited(path: &Path) -> CommandResult<(Vec<u8>, Metadata)> {
@@ -5663,6 +5662,29 @@ mod tests {
 
         assert!(matches.is_empty());
         assert_eq!(inspected, vec!["a.md", "b.md"]);
+    }
+
+    #[test]
+    fn search_charges_invalid_utf8_against_the_read_budget() {
+        let workspace = tempdir().unwrap();
+        write_fixture(&workspace, "a.md", &[0xff; 8]);
+        write_fixture(&workspace, "b.md", b"needle");
+        let mut inspected = Vec::new();
+        let matches = search_workspace_with_limits(
+            SearchWorkspaceRequest {
+                workspace_root: root_string(&workspace),
+                query: "needle".to_owned(),
+                max_results: None,
+            },
+            SearchLimits {
+                max_read_bytes: 8,
+                max_entries: MAX_TREE_ENTRIES,
+            },
+            |path| inspected.push(path.file_name().unwrap().to_string_lossy().into_owned()),
+        )
+        .unwrap();
+        assert!(matches.is_empty());
+        assert_eq!(inspected, vec!["a.md"]);
     }
 
     #[test]

@@ -1,5 +1,4 @@
 @import "./global.css";
-@import "../components/ui/ui.css";
 @import "./markdown.css";
 @import "../features/live/live.css";
 @import "./workspace.css";
