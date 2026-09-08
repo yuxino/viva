@@ -33,6 +33,7 @@ export interface DocumentSnapshot {
 export interface OpenDocument extends DocumentSnapshot {
   savedContent: string;
   savedLineEnding: LineEnding;
+  pendingSave?: Pick<DocumentSnapshot, "content" | "lineEnding">;
 }
 
 export type ViewMode = "live" | "edit" | "split" | "preview";
@@ -82,6 +83,12 @@ export type WorkspaceAction =
       previousId: string;
       snapshot: DocumentSnapshot;
     }
+  | {
+      type: "document/save-started";
+      id: string;
+      snapshot: Pick<DocumentSnapshot, "content" | "lineEnding">;
+    }
+  | { type: "document/save-finished"; id: string }
   | { type: "document/closed"; id: string }
   | {
       type: "entry/renamed";
@@ -175,6 +182,22 @@ export function workspaceReducer(
         documents: {
           ...state.documents,
           [action.id]: { ...document, content: action.content, lineEnding },
+        },
+      };
+    }
+    case "document/save-started":
+    case "document/save-finished": {
+      const document = state.documents[action.id];
+      if (!document) return state;
+      return {
+        ...state,
+        documents: {
+          ...state.documents,
+          [action.id]: {
+            ...document,
+            pendingSave:
+              action.type === "document/save-started" ? action.snapshot : undefined,
+          },
         },
       };
     }
@@ -355,7 +378,10 @@ export function isDocumentDirty(document: OpenDocument | undefined): boolean {
   return Boolean(
     document &&
       (document.content !== document.savedContent ||
-        document.lineEnding !== document.savedLineEnding),
+        document.lineEnding !== document.savedLineEnding ||
+        (document.pendingSave &&
+          (document.content !== document.pendingSave.content ||
+            document.lineEnding !== document.pendingSave.lineEnding))),
   );
 }
 

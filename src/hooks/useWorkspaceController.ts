@@ -264,6 +264,7 @@ export function useWorkspaceController() {
   const fileMutationInFlightRef = useRef<Promise<boolean> | null>(null);
   const fileOperationTailRef = useRef<Promise<void>>(Promise.resolve());
   const searchRequestIdRef = useRef(0);
+  const refreshRequestIdRef = useRef(0);
   const workspaceGenerationRef = useRef(0);
   const workspaceRootRef = useRef<string | null>(null);
   const nextDocumentTokenRef = useRef(0);
@@ -337,8 +338,21 @@ export function useWorkspaceController() {
 
   const refreshWorkspace = useCallback(
     async (context: WorkspaceOperationContext): Promise<boolean> => {
-      const workspace = await loadWorkspace(context.rootPath);
+      const requestId = ++refreshRequestIdRef.current;
+      let workspace;
+      try {
+        workspace = await loadWorkspace(context.rootPath);
+      } catch (error) {
+        if (
+          requestId !== refreshRequestIdRef.current ||
+          !isWorkspaceContextCurrent(context)
+        ) {
+          return false;
+        }
+        throw error;
+      }
       if (
+        requestId !== refreshRequestIdRef.current ||
         !isWorkspaceContextCurrent(context) ||
         workspace.rootPath !== context.rootPath
       ) {
@@ -397,6 +411,15 @@ export function useWorkspaceController() {
 
   const openWorkspacePath = useCallback(
     async (path: string, restoreSession?: VivaSession): Promise<boolean> => {
+      if (hasDirtyDocuments(liveStateRef.current)) {
+        setStatus(
+          translatedStatus(
+            "Save or close changed files before switching folders.",
+            "error",
+          ),
+        );
+        return false;
+      }
       const generation = ++workspaceGenerationRef.current;
       searchRequestIdRef.current += 1;
       setSearchResults([]);
@@ -406,6 +429,15 @@ export function useWorkspaceController() {
       try {
         const workspace = await loadWorkspaceBeforeDeadline(path);
         if (workspaceGenerationRef.current !== generation) return false;
+        if (hasDirtyDocuments(liveStateRef.current)) {
+          setStatus(
+            translatedStatus(
+              "Save or close changed files before switching folders.",
+              "error",
+            ),
+          );
+          return false;
+        }
         const context = { generation, rootPath: workspace.rootPath };
         workspaceRootRef.current = workspace.rootPath;
         documentTokensRef.current.clear();
@@ -423,10 +455,15 @@ export function useWorkspaceController() {
 
         if (restoreSession?.openDocuments.length) {
           for (const relativePath of restoreSession.openDocuments) {
+            const documentToken =
+              documentTokensRef.current.get(relativePath) ??
+              markDocumentCurrent(relativePath);
             try {
               const snapshot = await readDocument(workspace.rootPath, relativePath);
               if (!isWorkspaceContextCurrent(context)) return false;
-              markDocumentCurrent(snapshot.relativePath);
+              if (documentTokensRef.current.get(relativePath) !== documentToken) {
+                continue;
+              }
               dispatchState({ type: "document/opened", snapshot });
             } catch {
               if (!isWorkspaceContextCurrent(context)) return false;
@@ -528,7 +565,7 @@ export function useWorkspaceController() {
       );
       return false;
     }
-    if (dirty) {
+    if (hasDirtyDocuments(liveStateRef.current)) {
       setStatus(
         translatedStatus(
           "Save or close changed files before opening another folder.",
@@ -539,11 +576,11 @@ export function useWorkspaceController() {
     }
     const selected = await chooseWorkspace(t("Open a Markdown folder"));
     return selected ? openWorkspacePath(selected) : false;
-  }, [dirty, openWorkspacePath, t]);
+  }, [openWorkspacePath, t]);
 
   const openRecentWorkspace = useCallback(
     async (path: string): Promise<boolean> => {
-      if (dirty) {
+      if (hasDirtyDocuments(liveStateRef.current)) {
         setStatus(
           translatedStatus(
             "Save or close changed files before switching folders.",
@@ -554,14 +591,14 @@ export function useWorkspaceController() {
       }
       return openWorkspacePath(path);
     },
-    [dirty, openWorkspacePath, t],
+    [openWorkspacePath],
   );
 
   const openDocument = useCallback(
     async (relativePath: string): Promise<boolean> => {
-      const workspace = state.workspace;
+      const { workspace, documents } = liveStateRef.current;
       if (!workspace) return false;
-      if (state.documents[relativePath]) {
+      if (documents[relativePath]) {
         if (!documentTokensRef.current.has(relativePath)) {
           markDocumentCurrent(relativePath);
         }
@@ -572,16 +609,23 @@ export function useWorkspaceController() {
         generation: workspaceGenerationRef.current,
         rootPath: workspace.rootPath,
       };
+      // Concurrent reads belong to the same tab incarnation. A late read must
+      // not invalidate its save or resurrect it after close/rename.
+      const documentToken =
+        documentTokensRef.current.get(relativePath) ??
+        markDocumentCurrent(relativePath);
+      const isReadCurrent = () =>
+        isWorkspaceContextCurrent(context) &&
+        documentTokensRef.current.get(relativePath) === documentToken;
       setStatus(translatedStatus("Opening %@…", "neutral", relativePath));
       try {
         const snapshot = await readDocument(workspace.rootPath, relativePath);
-        if (!isWorkspaceContextCurrent(context)) return false;
-        markDocumentCurrent(snapshot.relativePath);
+        if (!isReadCurrent()) return false;
         dispatchState({ type: "document/opened", snapshot });
         setStatus(READY_STATUS);
         return true;
       } catch (error) {
-        if (!isWorkspaceContextCurrent(context)) return false;
+        if (!isReadCurrent()) return false;
         setStatus(nativeErrorStatus(error));
         return false;
       }
@@ -590,8 +634,6 @@ export function useWorkspaceController() {
       dispatchState,
       isWorkspaceContextCurrent,
       markDocumentCurrent,
-      state.documents,
-      state.workspace,
     ],
   );
 
@@ -604,11 +646,10 @@ export function useWorkspaceController() {
   );
 
   const saveDocument = useCallback(
-    (id = state.activeDocumentId ?? ""): Promise<boolean> => {
-      const workspace = state.workspace;
-      const document = state.documents[id];
+    (id = liveStateRef.current.activeDocumentId ?? ""): Promise<boolean> => {
+      const workspace = liveStateRef.current.workspace;
+      const document = liveStateRef.current.documents[id];
       if (!workspace || !document) return Promise.resolve(false);
-      if (!isDocumentDirty(document)) return Promise.resolve(true);
       const context = {
         generation: workspaceGenerationRef.current,
         rootPath: workspace.rootPath,
@@ -618,12 +659,18 @@ export function useWorkspaceController() {
       const operationKey = `${context.generation}\u0000${context.rootPath}\u0000${id}\u0000${documentToken}`;
       const inFlight = savesInFlightRef.current.get(operationKey);
       if (inFlight) return inFlight;
+      if (!isDocumentDirty(document)) return Promise.resolve(true);
       setStatus(translatedStatus("Saving…", "neutral"));
       const operation = enqueueFileOperation(async () => {
         try {
           if (!isDocumentContextCurrent(context, id, documentToken)) {
             return false;
           }
+          dispatchState({
+            type: "document/save-started",
+            id,
+            snapshot: { content: document.content, lineEnding: document.lineEnding },
+          });
           const snapshot = await writeNativeDocument(workspace.rootPath, document);
           if (!isDocumentContextCurrent(context, id, documentToken)) {
             return false;
@@ -639,6 +686,7 @@ export function useWorkspaceController() {
           if (!isDocumentContextCurrent(context, id, documentToken)) {
             return false;
           }
+          dispatchState({ type: "document/save-finished", id });
           setStatus(nativeErrorStatus(error, "Not saved — %@"));
           return false;
         } finally {
@@ -653,19 +701,16 @@ export function useWorkspaceController() {
       enqueueFileOperation,
       isDocumentContextCurrent,
       markDocumentCurrent,
-      state.activeDocumentId,
-      state.documents,
-      state.workspace,
     ],
   );
 
   const saveDocumentAs = useCallback(
-    (id = state.activeDocumentId ?? ""): Promise<boolean> => {
+    (id = liveStateRef.current.activeDocumentId ?? ""): Promise<boolean> => {
       if (fileMutationInFlightRef.current) {
         return fileMutationInFlightRef.current;
       }
-      const workspace = state.workspace;
-      const document = state.documents[id];
+      const workspace = liveStateRef.current.workspace;
+      const document = liveStateRef.current.documents[id];
       if (!workspace || !document) return Promise.resolve(false);
       const context = {
         generation: workspaceGenerationRef.current,
@@ -708,6 +753,11 @@ export function useWorkspaceController() {
               );
               return false;
             }
+            dispatchState({
+              type: "document/save-started",
+              id,
+              snapshot: { content: document.content, lineEnding: document.lineEnding },
+            });
             const snapshot = await saveNativeDocumentAs(
               workspace.rootPath,
               destination,
@@ -722,6 +772,7 @@ export function useWorkspaceController() {
               snapshot.relativePath !== id &&
               liveStateRef.current.documents[snapshot.relativePath]
             ) {
+              dispatchState({ type: "document/save-finished", id });
               await refreshAfterMutation(context);
               if (!isWorkspaceContextCurrent(context)) return false;
               setStatus(
@@ -733,16 +784,24 @@ export function useWorkspaceController() {
               return true;
             }
             markDocumentCurrent(id);
-            markDocumentCurrent(snapshot.relativePath);
+            const savedToken = markDocumentCurrent(snapshot.relativePath);
             dispatchState({ type: "document/saved", previousId: id, snapshot });
             await refreshAfterMutation(context);
-            if (!isWorkspaceContextCurrent(context)) return false;
-            setStatus(statusAfterSave(snapshot));
-            return true;
+            if (
+              !isDocumentContextCurrent(context, snapshot.relativePath, savedToken)
+            ) {
+              return false;
+            }
+            const newerContent = isDocumentDirty(
+              liveStateRef.current.documents[snapshot.relativePath],
+            );
+            setStatus(statusAfterSave(snapshot, newerContent));
+            return !newerContent;
           } catch (error) {
             if (!isDocumentContextCurrent(context, id, documentToken)) {
               return false;
             }
+            dispatchState({ type: "document/save-finished", id });
             setStatus(nativeErrorStatus(error, "Not saved — %@"));
             return false;
           }
@@ -763,9 +822,6 @@ export function useWorkspaceController() {
       isWorkspaceContextCurrent,
       markDocumentCurrent,
       refreshAfterMutation,
-      state.activeDocumentId,
-      state.documents,
-      state.workspace,
       t,
     ],
   );

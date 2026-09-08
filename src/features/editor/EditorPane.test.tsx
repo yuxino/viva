@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   createEvent,
   fireEvent,
@@ -561,6 +562,51 @@ describe("EditorPane", () => {
 
     expect(editor.selectionStart).toBe(0);
     expect(editor.selectionEnd).toBe(5);
+  });
+
+  it.each(["Paste", "Cut"])("keeps newer text when a delayed %s completes", async (action) => {
+    let complete!: (value: string) => void;
+    const pending = new Promise<string>((resolve) => { complete = resolve; });
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { readText: vi.fn(() => pending), writeText: vi.fn(() => pending) },
+    });
+    try {
+      render(<ControlledEditor />);
+      const editor = screen.getByRole("textbox") as HTMLTextAreaElement;
+      editor.setSelectionRange(action === "Cut" ? 0 : 5, 5);
+      fireEvent.contextMenu(editor);
+      fireEvent.click(screen.getByRole("menuitem", { name: new RegExp(`^${action}`) }));
+      fireEvent.change(editor, { target: { value: "hello new" } });
+      await act(async () => { complete(" world"); await pending; });
+      expect(editor).toHaveValue("hello new");
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, "clipboard", descriptor);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("does not cut a new selection after the clipboard write completes", async () => {
+    let complete!: () => void;
+    const pending = new Promise<void>((resolve) => { complete = resolve; });
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true, value: { writeText: vi.fn(() => pending) },
+    });
+    try {
+      render(<ControlledEditor />);
+      const editor = screen.getByRole("textbox") as HTMLTextAreaElement;
+      editor.setSelectionRange(0, 2);
+      fireEvent.contextMenu(editor);
+      fireEvent.click(screen.getByRole("menuitem", { name: /^Cut/ }));
+      editor.setSelectionRange(2, 5);
+      await act(async () => { complete(); await pending; });
+      expect(editor).toHaveValue("hello");
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, "clipboard", descriptor);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 });
 

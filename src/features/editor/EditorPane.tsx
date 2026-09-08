@@ -128,6 +128,7 @@ export const EditorPane = forwardRef<HTMLTextAreaElement, EditorPaneProps>(
     );
     const suppressScrollRef = useRef(false);
     const composingRef = useRef(false);
+    const clipboardRevisionRef = useRef(0);
     const initialOffset = selection?.end ?? 0;
     const tracksPosition = value.length <= MAX_TRACKED_POSITION_CHARACTERS;
     const [position, setPosition] = useState(() =>
@@ -141,6 +142,13 @@ export const EditorPane = forwardRef<HTMLTextAreaElement, EditorPaneProps>(
       () => textareaRef.current as HTMLTextAreaElement,
       [],
     );
+
+    useLayoutEffect(() => {
+      clipboardRevisionRef.current += 1;
+      return () => {
+        clipboardRevisionRef.current += 1;
+      };
+    }, [value, readOnly, disabled]);
 
     function publishSelection(nextSelection: TextSelection): void {
       const normalized = normalizeSelection(value, nextSelection);
@@ -396,6 +404,7 @@ export const EditorPane = forwardRef<HTMLTextAreaElement, EditorPaneProps>(
 
     function handleChange(event: ChangeEvent<HTMLTextAreaElement>): void {
       const textarea = event.currentTarget;
+      clipboardRevisionRef.current += 1;
       // Chromium normalizes textarea values to LF. The native document contract
       // keeps the on-disk newline policy; jsdom is not evidence for this behavior.
       onChange(textarea.value);
@@ -540,11 +549,29 @@ export const EditorPane = forwardRef<HTMLTextAreaElement, EditorPaneProps>(
       onChange(nextValue);
     }
 
+    function clipboardSelectionIsCurrent(
+      textarea: HTMLTextAreaElement,
+    ): () => boolean {
+      const revision = clipboardRevisionRef.current;
+      const { selectionStart, selectionEnd } = textarea;
+      return () =>
+        textareaRef.current === textarea &&
+        clipboardRevisionRef.current === revision &&
+        textarea.value === value &&
+        textarea.selectionStart === selectionStart &&
+        textarea.selectionEnd === selectionEnd &&
+        textarea.readOnly === readOnly &&
+        textarea.disabled === disabled &&
+        !composingRef.current;
+    }
+
     async function copySelection(cut = false): Promise<void> {
       const textarea = textareaRef.current;
       if (!textarea) return;
+      const isCurrent = clipboardSelectionIsCurrent(textarea);
       const selected = value.slice(textarea.selectionStart, textarea.selectionEnd);
       if (!selected || !(await writeClipboardText(selected))) return;
+      if (!isCurrent()) return;
       if (cut && !readOnly && !disabled) replaceSelection("");
       else textarea.focus();
     }
@@ -553,6 +580,7 @@ export const EditorPane = forwardRef<HTMLTextAreaElement, EditorPaneProps>(
       if (readOnly || disabled) return;
       const textarea = textareaRef.current;
       if (!textarea) return;
+      const isCurrent = clipboardSelectionIsCurrent(textarea);
       if (onPasteImage) {
         const selection = normalizeSelection(value, {
           direction: textarea.selectionDirection,
@@ -560,13 +588,14 @@ export const EditorPane = forwardRef<HTMLTextAreaElement, EditorPaneProps>(
           start: textarea.selectionStart,
         });
         const image = await readClipboardImage();
+        if (!isCurrent()) return;
         if (image) {
           onPasteImage(image, selection);
           return;
         }
       }
       const clipboard = await readClipboardText();
-      if (clipboard !== null) replaceSelection(clipboard);
+      if (clipboard !== null && isCurrent()) replaceSelection(clipboard);
     }
 
     function selectAll(): void {

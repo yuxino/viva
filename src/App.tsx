@@ -48,6 +48,7 @@ import {
   type FileKind,
   type FileTreeNode,
   type LineEnding,
+  type OpenDocument,
   type ViewMode,
 } from "./domain/workspace";
 import {
@@ -142,6 +143,8 @@ interface PendingHistoryLoad {
   documentName: string;
   lineEnding: LineEnding;
   versionLabel: string;
+  workspaceRoot: string;
+  expectedDocument: OpenDocument;
 }
 
 interface EntryNameRequest {
@@ -1825,6 +1828,25 @@ export function App() {
     workbenchSurface,
   ]);
 
+  const isHistoryTargetCurrent = useCallback(
+    (pending: PendingHistoryLoad) =>
+      workspaceRootRef.current === pending.workspaceRoot &&
+      workspaceStateRef.current.documents[pending.documentId] ===
+        pending.expectedDocument,
+    [],
+  );
+
+  useEffect(() => {
+    if (pendingHistoryLoad && !isHistoryTargetCurrent(pendingHistoryLoad)) {
+      setPendingHistoryLoad(null);
+    }
+  }, [
+    isHistoryTargetCurrent,
+    pendingHistoryLoad,
+    state.documents,
+    state.workspace?.rootPath,
+  ]);
+
   const selectDocumentView = useCallback(
     (viewMode: ViewMode) => {
       setWorkbenchSurface("document");
@@ -2387,7 +2409,9 @@ export function App() {
 
   const requestHistoryLoad = useCallback(
     (entry: HistoryEntry) => {
-      if (!currentDocument || entry.content === undefined) return;
+      if (!currentDocument || !state.workspace || entry.content === undefined) {
+        return;
+      }
       const lineEnding = entry.lineEnding ?? currentDocument.lineEnding;
       if (
         entry.content === currentDocument.content &&
@@ -2403,6 +2427,8 @@ export function App() {
           documentName: currentDocument.name,
           lineEnding,
           versionLabel: entry.label,
+          workspaceRoot: state.workspace.rootPath,
+          expectedDocument: currentDocument,
         });
         return;
       }
@@ -2413,11 +2439,15 @@ export function App() {
       );
       setWorkbenchSurface("document");
     },
-    [changeDocumentContent, currentDocument],
+    [changeDocumentContent, currentDocument, state.workspace],
   );
 
   const confirmHistoryLoad = useCallback(() => {
     if (!pendingHistoryLoad) return;
+    if (!isHistoryTargetCurrent(pendingHistoryLoad)) {
+      setPendingHistoryLoad(null);
+      return;
+    }
     changeDocumentContent(
       pendingHistoryLoad.documentId,
       pendingHistoryLoad.content,
@@ -2426,7 +2456,12 @@ export function App() {
     controller.activateDocument(pendingHistoryLoad.documentId);
     setPendingHistoryLoad(null);
     setWorkbenchSurface("document");
-  }, [changeDocumentContent, controller.activateDocument, pendingHistoryLoad]);
+  }, [
+    changeDocumentContent,
+    controller.activateDocument,
+    isHistoryTargetCurrent,
+    pendingHistoryLoad,
+  ]);
 
   const appStyle = {
     "--sidebar-preferred-width": `${sidebarWidth}px`,
@@ -2842,6 +2877,10 @@ export function App() {
               state.viewMode === "live" &&
               !liveDocumentTooLarge ? (
                 <LiveEditorPane
+                  key={JSON.stringify([
+                    state.workspace.rootPath,
+                    currentDocument.relativePath,
+                  ])}
                   ariaLabel={fmt("Live editing %@", currentDocument.name)}
                   documentId={currentDocument.relativePath}
                   format={documentFormat}
@@ -2863,6 +2902,10 @@ export function App() {
                 />
               ) : state.focusMode || state.viewMode !== "preview" ? (
                 <EditorPane
+                  key={JSON.stringify([
+                    state.workspace.rootPath,
+                    currentDocument.relativePath,
+                  ])}
                   ariaLabel={fmt("Editing %@", currentDocument.name)}
                   autoFocus
                   ref={editorRef}

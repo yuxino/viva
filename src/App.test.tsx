@@ -1827,6 +1827,99 @@ describe("App search navigation", () => {
     );
   });
 
+  it("protects an undone draft when closing a tab with an older write in flight", async () => {
+    const controller = workspaceControllerMock.current;
+    const document = {
+      ...sourceDocument,
+      pendingSave: { content: "older write", lineEnding: "lf" },
+    };
+    controller.state = {
+      ...controller.state,
+      documents: { ...controller.state.documents, "source.md": document },
+    };
+    controller.currentDocument = document;
+    controller.dirty = true;
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Close source.md" }));
+    expect(await screen.findByRole("dialog", { name: "Save changes to “source.md”?" })).toBeVisible();
+    expect(controller.closeDocument).not.toHaveBeenCalled();
+    expect(quitHooksMock.requestClose).not.toHaveBeenCalled();
+  });
+
+  it("drops a pending clipboard paste when switching to the same path in another workspace", async () => {
+    const controller = workspaceControllerMock.current;
+    const read = deferred<string>();
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const readText = vi.fn(() => read.promise);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true, value: { readText },
+    });
+    try {
+      const view = render(<App />);
+      const editor = screen.getByRole("textbox", { name: "Editing source.md" }) as HTMLTextAreaElement;
+      editor.setSelectionRange(6, 6);
+      fireEvent.contextMenu(editor);
+      fireEvent.click(screen.getByRole("menuitem", { name: /^Paste/ }));
+      await waitFor(() => expect(readText).toHaveBeenCalledOnce());
+      controller.state = {
+        ...controller.state,
+        workspace: { ...controller.state.workspace, rootPath: "/other-notes" },
+      };
+      view.rerender(<App />);
+      await act(async () => { read.resolve(" old paste"); await read.promise; });
+      expect(controller.changeDocument).not.toHaveBeenCalled();
+      expect(screen.getByRole("textbox", { name: "Editing source.md" })).toHaveValue("source");
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, "clipboard", descriptor);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it.each(["workspace", "closed", "new draft", "reopened"])(
+    "invalidates history replacement when its target changes: %s",
+    async (change) => {
+      const controller = workspaceControllerMock.current;
+      const draft = { ...sourceDocument, content: "unsaved draft" };
+      controller.state = {
+        ...controller.state,
+        documents: { ...controller.state.documents, "source.md": draft },
+      };
+      controller.currentDocument = draft;
+      const version = {
+        id: "older", label: "Yesterday", description: "Before editing",
+        content: "historical text", lineEnding: "lf",
+      };
+      documentHistoryMock.current = {
+        ...documentHistoryMock.current,
+        entries: [version], selectedEntry: version, selectedId: version.id,
+      };
+      const view = render(<App />);
+      fireEvent.click(screen.getByRole("button", { name: "File history" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Load this version: Yesterday" }));
+      expect(screen.getByRole("dialog", { name: "Load “Yesterday”?" })).toBeVisible();
+
+      const replacement = change === "workspace"
+        ? draft
+        : { ...draft, content: change === "new draft" ? "newer draft" : draft.content };
+      controller.state = {
+        ...controller.state,
+        workspace: change === "workspace"
+          ? { ...controller.state.workspace, rootPath: "/other-notes" }
+          : controller.state.workspace,
+        documents: change === "closed" ? {} : { "source.md": replacement },
+        documentOrder: change === "closed" ? [] : ["source.md"],
+        activeDocumentId: change === "closed" ? null : "source.md",
+      };
+      controller.currentDocument = change === "closed" ? null : replacement;
+      view.rerender(<App />);
+      const staleConfirmation = screen.queryByRole("button", { name: "Replace unsaved draft" });
+      if (staleConfirmation) fireEvent.click(staleConfirmation);
+
+      expect(controller.changeDocument).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog", { name: "Load “Yesterday”?" })).not.toBeInTheDocument();
+    },
+  );
+
   it("renders Windows title controls and Control-based command labels", () => {
     document.documentElement.dataset.platform = "windows";
     render(<App />);
