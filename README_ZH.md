@@ -54,7 +54,7 @@ Viva 2.0.6 首次加入由用户确认的应用内更新。打开**外观与背�
 验证通过后才能安装，不存在跳过签名的降级路径。
 
 **首次启用：** 使用 Viva 2.0.6 及更早版本时，请先从
-[GitHub Releases](https://github.com/yuxino/viva/releases) 手动安装一次 2.0.7。
+[GitHub Releases](https://github.com/yuxino/viva/releases) 手动安装一次 2.0.7 或更高版本。
 2.0.5 及更早版本没有更新器；2.0.6 缺少检查时读取应用版本所需的权限。
 2.0.7 已修复该权限，此后的签名版本可以直接在 Viva 内完成更新。
 

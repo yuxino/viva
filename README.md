@@ -59,7 +59,7 @@ notes, and choose whether to download. Tauri verifies every downloaded updater
 bundle against Viva's embedded public key before installation; there is no
 unsigned fallback.
 
-**Bootstrap:** Install 2.0.7 manually once from
+**Bootstrap:** Install 2.0.7 or later manually once from
 [GitHub Releases](https://github.com/yuxino/viva/releases) if you use 2.0.6 or earlier.
 Versions through 2.0.5 have no updater; 2.0.6 is missing the permission needed to
 read the app version during a check. Version 2.0.7 fixes that permission, so future

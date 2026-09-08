@@ -1,6 +1,6 @@
 {
   "name": "viva",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "private": true,
   "description": "A quiet local workspace for Markdown.",
   "type": "module",

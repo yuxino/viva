@@ -214,7 +214,7 @@ See [ADR-0007](adr/0007-fail-closed-native-quit-protection.md).
   the OS language.
 - Viva 2.0.5 and earlier have no updater; 2.0.6 lacks the app-version read
   permission required by the check. Users of those versions must manually install
-  2.0.7 once before future signed in-app updates are available.
+  2.0.7 or later once before future signed in-app updates are available.
 
 ## Verification
 
