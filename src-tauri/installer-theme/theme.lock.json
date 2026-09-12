@@ -1,10 +1,10 @@
 {
   "format": "yuxino-installer-lock-v2",
   "source": "yuxino/desktop-installer",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "product": "viva",
   "repository": "https://github.com/yuxino/viva",
-  "size": 948608,
-  "unpackedSize": 3327752,
-  "sha256": "781448f2d49664d6ac570803513393ac20344e32e1176b8bf2c1f0dceeac09bd"
+  "size": 948704,
+  "unpackedSize": 3327948,
+  "sha256": "ee3b747d3a82dd8784f375816f1aa41974fcad581341247ef902e2b8f833678b"
 }
