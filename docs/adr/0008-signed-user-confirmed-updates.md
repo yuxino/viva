@@ -29,6 +29,12 @@ relaunch only on the user's click. Windows uses Tauri's passive NSIS mode; the
 application explains that it will exit while the installer finishes and reopens
 Viva.
 
+Installation and relaunch are unavailable while any open document has unsaved
+changes. The latest draft state is checked again after downloading, immediately
+before the native installer can exit the process. A blocked installation retains
+the verified update for retry after saving; normal quit protection alone cannot
+guard the Windows updater's direct process exit.
+
 Tag CI keeps the GitHub Release draft until both platforms, `latest.json`,
 detached signatures, cryptographic verification, version/URL/architecture
 checks, uniqueness, and SHA-256 generation succeed. Publication is followed by

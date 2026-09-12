@@ -44,6 +44,7 @@ const officialUpdaterAdapter: UpdaterAdapter = {
 
 interface UpdatePanelProps {
   adapter?: UpdaterAdapter;
+  hasUnsavedChanges?: boolean;
   platform: VivaPlatform;
 }
 
@@ -55,6 +56,7 @@ function formattedBytes(bytes: number): string {
 
 export function UpdatePanel({
   adapter = officialUpdaterAdapter,
+  hasUnsavedChanges = false,
   platform,
 }: UpdatePanelProps) {
   const { fmt, t } = useI18n();
@@ -62,6 +64,8 @@ export function UpdatePanel({
   const inFlightRef = useRef(false);
   const updateRef = useRef<AppUpdate | null>(null);
   const mountedRef = useRef(true);
+  const unsavedChangesRef = useRef(hasUnsavedChanges);
+  unsavedChangesRef.current = hasUnsavedChanges;
   const percent = updateProgressPercent(state);
 
   const closeCurrentUpdate = useCallback(async () => {
@@ -112,6 +116,11 @@ export function UpdatePanel({
 
   const installDownloaded = useCallback(
     async (update: AppUpdate) => {
+      // Windows installation exits the process directly, bypassing normal quit protection.
+      if (unsavedChangesRef.current) {
+        dispatch({ type: "failed", stage: "install" });
+        return;
+      }
       dispatch({ type: "installing" });
       try {
         await update.install({ restartAfterInstall: platform === "windows" });
@@ -126,7 +135,7 @@ export function UpdatePanel({
   );
 
   const downloadAndInstall = useCallback(async () => {
-    if (inFlightRef.current || !updateRef.current) return;
+    if (inFlightRef.current || !updateRef.current || unsavedChangesRef.current) return;
     inFlightRef.current = true;
     const update = updateRef.current;
     dispatch({ type: "downloadStarted" });
@@ -166,7 +175,7 @@ export function UpdatePanel({
   }, [installDownloaded]);
 
   const restart = useCallback(async () => {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current || unsavedChangesRef.current) return;
     inFlightRef.current = true;
     try {
       await adapter.relaunch();
@@ -233,6 +242,9 @@ export function UpdatePanel({
       </div>
 
       <div aria-atomic="true" aria-live="polite" className="software-update__status">
+        {hasUnsavedChanges ? (
+          <p>{t("Save your open documents before installing an update or restarting Viva.")}</p>
+        ) : null}
         {state.phase === "idle" ? (
           <p>{t("Viva checks one fixed, secure release feed.")}</p>
         ) : state.phase === "checking" ? (
@@ -256,7 +268,7 @@ export function UpdatePanel({
               </p>
             ) : null}
             <div className="software-update__actions">
-              <Button onClick={() => void downloadAndInstall()} size="small" variant="primary">
+              <Button disabled={hasUnsavedChanges} onClick={() => void downloadAndInstall()} size="small" variant="primary">
                 {platform === "windows" ? t("Download and install") : t("Download update")}
               </Button>
               <Button onClick={() => void postpone()} size="small" variant="ghost">
@@ -288,7 +300,7 @@ export function UpdatePanel({
         ) : state.phase === "restartReady" ? (
           <>
             <p>{t("The verified update is installed and ready.")}</p>
-            <Button onClick={() => void restart()} size="small" variant="primary">
+            <Button disabled={hasUnsavedChanges} onClick={() => void restart()} size="small" variant="primary">
               {t("Restart and finish update")}
             </Button>
           </>
@@ -296,7 +308,7 @@ export function UpdatePanel({
           <>
             <p className="software-update__error" role="alert">{errorMessage}</p>
             <div className="software-update__actions">
-              <Button onClick={retry} size="small">{t("Retry")}</Button>
+              <Button disabled={hasUnsavedChanges && state.failureStage !== "check"} onClick={retry} size="small">{t("Retry")}</Button>
               <a
                 href={VIVA_RELEASES_URL}
                 onClick={(event) => {

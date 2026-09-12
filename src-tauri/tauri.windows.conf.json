@@ -5,24 +5,42 @@
     "beforeBuildCommand": "node src-tauri/installer-theme/build.mjs && pnpm build"
   },
   "app": {
-    "windows": [{
-      "label": "main", "title": "Viva", "width": 1280, "height": 800,
-      "minWidth": 900, "minHeight": 600, "resizable": true,
-      "fullscreen": false, "decorations": false
-    }]
+    "windows": [
+      {
+        "label": "main",
+        "title": "Viva",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false
+      }
+    ]
   },
   "bundle": {
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico",
         "sidebarImage": "installer-theme/generated/sidebar.bmp",
-        "headerImage": "installer-theme/generated/header.bmp",
-        "installerHooks": "installer-theme/theme.nsh",
-        "languages": ["English", "SimpChinese", "Japanese"],
-        "displayLanguageSelector": false
+        "installerHooks": "installer-theme/generated/theme.nsh",
+        "languages": [
+          "English",
+          "SimpChinese",
+          "Japanese"
+        ],
+        "displayLanguageSelector": false,
+        "customLanguageFiles": {
+          "English": "installer-theme/generated/English.nsh",
+          "SimpChinese": "installer-theme/generated/SimpChinese.nsh",
+          "Japanese": "installer-theme/generated/Japanese.nsh"
+        }
       }
     }
   }

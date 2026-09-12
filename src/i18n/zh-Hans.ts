@@ -412,6 +412,8 @@ const zhHans = {
   "Restart and finish update": "重新启动并完成更新",
   Retry: "重试",
   "Software Update": "软件更新",
+  "Save your open documents before installing an update or restarting Viva.":
+    "请先保存打开的文档，再安装更新或重新启动 Viva。",
   "Starting the verified Windows installer…": "正在启动已验证的 Windows 安装程序…",
   "The update could not be downloaded or verified.": "无法下载或验证更新。",
   "The verified update could not be installed.": "无法安装已验证的更新。",

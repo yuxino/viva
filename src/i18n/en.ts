@@ -427,6 +427,8 @@ const en = {
   "Restart and finish update": "Restart and finish update",
   Retry: "Retry",
   "Software Update": "Software Update",
+  "Save your open documents before installing an update or restarting Viva.":
+    "Save your open documents before installing an update or restarting Viva.",
   "Starting the verified Windows installer…":
     "Starting the verified Windows installer…",
   "The update could not be downloaded or verified.":

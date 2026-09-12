@@ -2804,7 +2804,7 @@ export function App() {
                     value={preference}
                   />
                 </section>
-                <UpdatePanel platform={platform} />
+                <UpdatePanel hasUnsavedChanges={dirty} platform={platform} />
                 <AppearancePanel controller={background} />
               </div>
             </div>

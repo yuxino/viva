@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../../i18n";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -28,6 +28,85 @@ function adapterWith(update: AppUpdate | null): UpdaterAdapter {
 }
 
 describe("UpdatePanel", () => {
+  it("does not install or restart while an open document has unsaved changes", async () => {
+    const update: AppUpdate = {
+      currentVersion: "2.0.6",
+      version: "2.0.7",
+      close: vi.fn().mockResolvedValue(undefined),
+      download: vi.fn().mockResolvedValue(undefined),
+      install: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = adapterWith(update);
+    render(
+      <I18nProvider initialPreference="en" storage={null}>
+        <UpdatePanel adapter={adapter} platform="windows" hasUnsavedChanges />
+      </I18nProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    const downloadButton = await screen.findByRole("button", { name: "Download and install" });
+    expect(downloadButton).toBeDisabled();
+    fireEvent.click(downloadButton);
+    expect(update.download).not.toHaveBeenCalled();
+    expect(update.install).not.toHaveBeenCalled();
+    expect(screen.getByText("Save your open documents before installing an update or restarting Viva.")).toBeVisible();
+  });
+
+  it("rechecks draft protection after downloading before Windows can exit", async () => {
+    let finishDownload!: () => void;
+    const update: AppUpdate = {
+      currentVersion: "2.0.6",
+      version: "2.0.7",
+      close: vi.fn().mockResolvedValue(undefined),
+      download: vi.fn(() => new Promise<void>((resolve) => { finishDownload = resolve; })),
+      install: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = adapterWith(update);
+    const panel = (dirty: boolean) => (
+      <I18nProvider initialPreference="en" storage={null}>
+        <UpdatePanel adapter={adapter} platform="windows" hasUnsavedChanges={dirty} />
+      </I18nProvider>
+    );
+    const view = render(panel(false));
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Download and install" }));
+    view.rerender(panel(true));
+    await act(async () => finishDownload());
+    expect(update.install).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled();
+    view.rerender(panel(false));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(update.install).toHaveBeenCalledWith({ restartAfterInstall: true }));
+    expect(update.download).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a new draft before the explicit macOS restart", async () => {
+    const update: AppUpdate = {
+      currentVersion: "2.0.6",
+      version: "2.0.7",
+      close: vi.fn().mockResolvedValue(undefined),
+      download: vi.fn().mockResolvedValue(undefined),
+      install: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = adapterWith(update);
+    const panel = (dirty: boolean) => (
+      <I18nProvider initialPreference="en" storage={null}>
+        <UpdatePanel adapter={adapter} platform="macos" hasUnsavedChanges={dirty} />
+      </I18nProvider>
+    );
+    const view = render(panel(false));
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Download update" }));
+    await screen.findByRole("button", { name: "Restart and finish update" });
+    view.rerender(panel(true));
+    const restartButton = screen.getByRole("button", { name: "Restart and finish update" });
+    expect(restartButton).toBeDisabled();
+    fireEvent.click(restartButton);
+    expect(adapter.relaunch).not.toHaveBeenCalled();
+    view.rerender(panel(false));
+    fireEvent.click(screen.getByRole("button", { name: "Restart and finish update" }));
+    await waitFor(() => expect(adapter.relaunch).toHaveBeenCalledOnce());
+  });
+
   it("reports the installed version when no update exists", async () => {
     renderPanel(adapterWith(null));
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
