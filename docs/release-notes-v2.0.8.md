@@ -1,3 +1,5 @@
+## English
+
 # Viva 2.0.8
 
 This patch protects drafts while files are opening, saving, and restoring.
@@ -11,7 +13,23 @@ This patch protects drafts while files are opening, saving, and restoring.
 - Cancel a pending history replacement if its original workspace, document, or draft changes.
 - Discard delayed clipboard actions in custom text menus when the text, selection, or editing target has changed.
 
-## 中文说明
+## Downloads and updates
+
+macOS Apple Silicon: DMG for manual installation and a signed app archive for
+the updater. Windows x64: NSIS installer with a detached updater signature.
+`latest.json` covers both update targets; `SHA256SUMS.txt` lists the checksums.
+
+Viva 2.0.7 users can check **Appearance and background → Software Update**.
+Users of 2.0.6 or earlier need to install this release manually once.
+
+macOS builds use ad-hoc signing and are not Apple-notarized. Use the normal
+system-supported manual Open flow when required. Windows device interaction
+and a cross-version installed-app update have not been manually verified for
+this release.
+
+---
+
+## 中文
 
 本次更新修复打开、保存和恢复文档时的草稿保护问题。
 
@@ -22,23 +40,15 @@ This patch protects drafts while files are opening, saving, and restoring.
 - 历史版本替换的工作区、文档或草稿发生变化时，撤销原来的替换确认。
 - 自定义文字菜单等待剪贴板期间，如果文本、选区或编辑目标变化，会丢弃过期操作。
 
-## Downloads and updates / 下载与更新
 
-macOS Apple Silicon: DMG for manual installation and a signed app archive for
-the updater. Windows x64: NSIS installer with a detached updater signature.
-`latest.json` covers both update targets; `SHA256SUMS.txt` lists the checksums.
 
-Viva 2.0.7 users can check **Appearance and background → Software Update**.
-Users of 2.0.6 or earlier need to install this release manually once.
+### 下载与更新
 
 macOS Apple Silicon 提供 DMG 和已签名的应用更新归档；Windows x64 提供 NSIS
 安装程序及更新签名。2.0.7 用户可在“外观与背景 → 软件更新”中检查更新；
 2.0.6 及更早版本需要先手动安装此版本。
 
-macOS builds use ad-hoc signing and are not Apple-notarized. Use the normal
-system-supported manual Open flow when required. Windows device interaction
-and a cross-version installed-app update have not been manually verified for
-this release.
-
 macOS 构建使用临时签名，未经 Apple 公证；如系统要求，请使用正常的手动打开流程。
 本次未进行 Windows 设备交互或已安装应用跨版本更新的手动验收。
+
+`latest.json` 包含两个更新目标，`SHA256SUMS.txt` 列出校验值。
